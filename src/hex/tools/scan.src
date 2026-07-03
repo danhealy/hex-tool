@@ -74,6 +74,7 @@ doScan = function(args)
     // @param {list<metaLib>} metaLibs - The meta library objects to scan.
     // @return {number} - Always 1.
     scanMetaLibs = function(metaLibs)
+        dirty = 0
         for metaLib in metaLibs
             if not g.database.hasIndex(metaLib.lib_name) then
                 g.database[metaLib.lib_name] = {}
@@ -112,6 +113,7 @@ doScan = function(args)
             end if
 
             if rescan then
+                dirty = 1
                 mems = g.stack["0"].metax.scan(metaLib)
 
                 for mem in mems
@@ -127,6 +129,7 @@ doScan = function(args)
             end if
         end for
 
+        if dirty then g.func.saveExploitDb
         return 1
     end function
 

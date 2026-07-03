@@ -189,6 +189,7 @@ hack = function(args)
             end for
         end for
 
+        g.func.saveExploitDb
         return results.sort("address")
     end function
 
@@ -261,6 +262,7 @@ hack = function(args)
             end for
         end for
 
+        g.func.saveExploitDb
         return result
     end function
 

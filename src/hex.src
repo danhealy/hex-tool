@@ -57,6 +57,7 @@ g.func.init
 g.func.updateApt
 output = g.func.updateLibs
 g.func.loadLibs
+g.func.loadExploitDb
 //g.func.loop_terminal
 
 print(g.func.getBanner)

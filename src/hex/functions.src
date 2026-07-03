@@ -1866,6 +1866,135 @@ g.func.rt_load = function
     print g.const.indent + g.s3("Loaded " + len(g.rt) + " passwords.")
 end function
 
+// **Load Exploit DB:**
+// Reads EXPLOIT_DB_PATH from the home computer, deserializes it, and deep-merges the
+// result into g.database.  Missing or corrupt files are silently ignored.
+// @return {none}
+g.func.loadExploitDb = function
+    home = g.stack["0"]
+    f = home.computer.File(g.const.EXPLOIT_DB_PATH)
+    if not f then return
+    if not f.has_permission("r") then return
+    content = f.get_content
+    if content == null or content == "" then return
+    data = g.func.deserialize(content)
+    if data == null or not (data isa map) then return
+    for libName in data.indexes
+        if not (data[libName] isa map) then continue
+        if not g.database.hasIndex(libName) then g.database[libName] = {}
+        for ver in data[libName].indexes
+            if not (data[libName][ver] isa map) then continue
+            if not g.database[libName].hasIndex(ver) then g.database[libName][ver] = {}
+            for mem in data[libName][ver].indexes
+                if not (data[libName][ver][mem] isa map) then continue
+                if not g.database[libName][ver].hasIndex(mem) then g.database[libName][ver][mem] = {}
+                for value in data[libName][ver][mem].indexes
+                    existing = g.database[libName][ver][mem][value]
+                    saved = data[libName][ver][mem][value]
+                    if existing == "" or existing == null then
+                        g.database[libName][ver][mem][value] = saved
+                    end if
+                end for
+            end for
+        end for
+    end for
+end function
+
+// **Save Exploit DB:**
+// Serializes g.database and writes it to EXPLOIT_DB_PATH on the home computer.
+// Creates the file if it does not exist.
+// @return {none}
+g.func.saveExploitDb = function
+    home = g.stack["0"]
+    f = home.computer.File(g.const.EXPLOIT_DB_PATH)
+    if not f then
+        result = home.computer.touch(parent_path(g.const.EXPLOIT_DB_PATH), g.const.EXPLOIT_DB_PATH.split("/")[-1])
+        if typeof(result) == "string" then
+            print g.error("saveExploitDb: could not create file: " + result)
+            return
+        end if
+        f = home.computer.File(g.const.EXPLOIT_DB_PATH)
+    end if
+    if not f then
+        print g.error("saveExploitDb: file not found after creation attempt")
+        return
+    end if
+    content = g.func.serialize(g.database, 1)
+    result = f.set_content(content)
+    if typeof(result) == "string" then
+        print g.error("saveExploitDb: " + result)
+    end if
+end function
+
+// **Load Shinylibs DB:**
+// Reads SHINYLIBS_DB_PATH from the home computer and returns the parsed object.
+// Returns {records:{}, staged:[]} if missing or corrupt.
+// @return {map} - The shinylibs archive data.
+g.func.loadShinylibsDb = function
+    home = g.stack["0"]
+    f = home.computer.File(g.const.SHINYLIBS_DB_PATH)
+    if not f then return {"records": {}, "staged": []}
+    if not f.has_permission("r") then return {"records": {}, "staged": []}
+    content = f.get_content
+    if content == null or content == "" then return {"records": {}, "staged": []}
+    data = g.func.deserialize(content)
+    if data == null or not (data isa map) then return {"records": {}, "staged": []}
+    if not data.hasIndex("records") then data["records"] = {}
+    if not data.hasIndex("staged") then data["staged"] = []
+    return data
+end function
+
+// **Save Shinylibs DB:**
+// Serializes data and writes it to SHINYLIBS_DB_PATH on the home computer.
+// @param {map} data - The shinylibs archive data to persist.
+// @return {none}
+g.func.saveShinylibsDb = function(data)
+    home = g.stack["0"]
+    f = home.computer.File(g.const.SHINYLIBS_DB_PATH)
+    if not f then
+        result = home.computer.touch(parent_path(g.const.SHINYLIBS_DB_PATH), g.const.SHINYLIBS_DB_PATH.split("/")[-1])
+        if typeof(result) == "string" then
+            print g.error("saveShinylibsDb: could not create file: " + result)
+            return
+        end if
+        f = home.computer.File(g.const.SHINYLIBS_DB_PATH)
+    end if
+    if not f then
+        print g.error("saveShinylibsDb: file not found after creation attempt")
+        return
+    end if
+    content = g.func.serialize(data, 1)
+    result = f.set_content(content)
+    if typeof(result) == "string" then
+        print g.error("saveShinylibsDb: " + result)
+    end if
+end function
+
+// **Ensure Shinylibs Dir:**
+// Creates any missing parent folders on the home computer for the given path.
+// @param {string} path - The full path to ensure (e.g. "/root/hex-shinylibs/libssh.so/1.2.3").
+// @return {number} - 1 if the path exists or was created, 0 on error.
+g.func.ensureShinylibsDir = function(path)
+    home = g.stack["0"]
+    parts = path.split("/")
+    current = ""
+    for part in parts
+        if part == "" then continue
+        current = current + "/" + part
+        f = home.computer.File(current)
+        if not f then
+            parent = parent_path(current)
+            name = current.split("/")[-1]
+            result = home.computer.create_folder(parent, name)
+            if typeof(result) == "string" then
+                print g.error("ensureShinylibsDir: " + result)
+                return 0
+            end if
+        end if
+    end for
+    return 1
+end function
+
 g.func.net = function(computer, data)
     if data.hasIndex(computer.local_ip) then return data
     obj = {

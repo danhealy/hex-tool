@@ -1,0 +1,500 @@
+// Prints usage text for the shinylibs tool.
+// @return {none}
+shinylibsHelp = function()
+    text = g.const.ni + g.l3("Usage:","u") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" Scans /lib on the current context for interesting libraries and stages the best ones.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" list") + g.l2(" Lists archived libraries grouped by name, showing best offensive and most defensive versions.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Copies staged libraries to the local archive under /root/hex-shinylibs/.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" put vuln") + g.l2(" Replaces target /lib libraries with the most vulnerable archived versions.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" put harden") + g.l2(" Replaces target /lib libraries with the most hardened archived versions.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Display this help text.") + g.const.nl
+    print(text)
+end function
+
+// Scores a single scan_address result line.
+// Returns a numeric score based on the result type and constraint penalties.
+// @param {string} result - A single result string from metax.scan_address (the part after "Unsafe check: ").
+// @return {number} - The calculated score (floored at 0).
+scoreScanResult = function(result)
+    lower = result.lower
+
+    // Base score by result type
+    score = 0
+    if lower.indexOf("root shell") != null then
+        score = 100
+    else if lower.indexOf("shell") != null then
+        score = 60
+    else if lower.indexOf("computer") != null then
+        score = 20
+    else if lower.indexOf("file") != null then
+        score = 10
+    else if lower.indexOf("firewall") != null or lower.indexOf("number") != null then
+        score = 5
+    end if
+
+    // Constraint penalties
+    if lower.indexOf("any user") != null then
+        score = score - 20
+    else if lower.indexOf("admin") != null or lower.indexOf("active user") != null then
+        score = score - 40
+    end if
+
+    if lower.indexOf("registered users") != null or lower.indexOf("user count") != null then
+        score = score - 10
+    end if
+
+    if lower.indexOf("port forward") != null then
+        score = score - 10
+    end if
+
+    if lower.indexOf("firewall off") != null then
+        score = score - 15
+    end if
+
+    if score < 0 then score = 0
+    return score
+end function
+
+// Scores all exploits in a metaxploit library and returns a summary map.
+// @param {metaLib} metaLib - The loaded meta library to score.
+// @param {metaxploitLib} metax - The metaxploit library object.
+// @return {map} - {topScore, allScores:[{mem, value, score}]}
+scoreLib = function(metaLib, metax)
+    summary = {"topScore": 0, "allScores": []}
+    mems = metax.scan(metaLib)
+    if not mems or mems == [] then return summary
+
+    for mem in mems
+        raw = metax.scan_address(metaLib, mem)
+        results = raw.split("Unsafe check: ")[1:]
+        for res in results
+            value = res[res.indexOf("<b>")+3:res.indexOf("</b>")]
+            sc = scoreScanResult(res)
+            entry = {"mem": mem, "value": value, "score": sc}
+            summary.allScores.push(entry)
+            if sc > summary.topScore then summary.topScore = sc
+        end for
+    end for
+
+    return summary
+end function
+
+// Reconstructs a score summary from g.database cache without issuing any metaxploit calls.
+// @param {string} libName - The library name (e.g. "libssh.so").
+// @param {string} ver - The library version string.
+// @return {map|null} - {topScore, allScores:[{mem, value, score}]} or null if cache incomplete.
+scoreLibFromCache = function(libName, ver)
+    if not g.database.hasIndex(libName) then return null
+    if not g.database[libName].hasIndex(ver) then return null
+
+    mems = g.database[libName][ver].indexes
+    if not mems or mems.len == 0 then return null
+
+    summary = {"topScore": 0, "allScores": []}
+
+    for mem in mems
+        values = g.database[libName][ver][mem].indexes
+        if not values or values.len == 0 then return null
+
+        for value in values
+            res = g.database[libName][ver][mem][value]
+            if typeof(res) != "string" or res == "" then return null
+            sc = scoreScanResult(res)
+            entry = {"mem": mem, "value": value, "score": sc}
+            summary.allScores.push(entry)
+            if sc > summary.topScore then summary.topScore = sc
+        end for
+    end for
+
+    return summary
+end function
+
+// **shinylibs scan:**
+// Scans all .so files in /lib on the current shell context.
+// Stages libs that beat the current archive for offensive score or add a new secure version.
+// @return {none}
+shinylibsScan = function()
+    idx = g.context.index
+    if not g.func.checkShell(idx) then return
+    if not g.func.checkMetax(idx) then
+        if not g.func.attach_metax(idx) then return
+    end if
+
+    context = g.stack[idx]
+    metax = context.metax
+
+    libsDir = context.computer.File("/lib")
+    if not libsDir then
+        print g.error("shinylibs scan: /lib not found on current context.")
+        return
+    end if
+
+    archive = g.func.loadShinylibsDb
+
+    staged = 0
+    total = 0
+
+    for f in libsDir.get_files
+        if f.name[-3:] != ".so" then continue
+        total = total + 1
+
+        metaLib = metax.load(f.path)
+        if not metaLib then continue
+
+        libName = metaLib.lib_name
+        ver = metaLib.version
+
+        // Try to score from g.database cache first (avoids redundant metaxploit calls)
+        summary = scoreLibFromCache(libName, ver)
+        if summary != null then
+            print g.const.indent + g.s3("Scoring " + libName + " v" + ver + " (from cache)...")
+        else
+            print g.const.indent + g.s3("Scoring " + libName + " v" + ver + "...")
+            summary = scoreLib(metaLib, metax)
+        end if
+        topScore = summary.topScore
+
+        // Determine whether this is offensive/defensive candidate
+        bestOffScore = -1
+        bestDefScore = 999999
+
+        for key in archive.records.indexes
+            parts = key.split("/")
+            if parts.len < 2 then continue
+            rLibName = parts[0]
+            if rLibName != libName then continue
+            rec = archive.records[key]
+            if rec.topScore > bestOffScore then bestOffScore = rec.topScore
+            if rec.topScore < bestDefScore then bestDefScore = rec.topScore
+        end for
+
+        // Also check staged entries
+        for entry in archive.staged
+            if entry.libName != libName then continue
+            if entry.topScore > bestOffScore then bestOffScore = entry.topScore
+            if entry.topScore < bestDefScore then bestDefScore = entry.topScore
+        end for
+
+        isOffensive = topScore > bestOffScore
+        isDefensive = topScore == 0 and bestDefScore > 0
+
+        if not isOffensive and not isDefensive then
+            print g.const.indent + g.d1("  " + libName + " v" + ver + " (score=" + topScore + ") — not better than archive, skipping.")
+            continue
+        end if
+
+        // Add to staged if not already there and not already in the archive
+        alreadyStaged = 0
+        if archive.records.hasIndex(libName + "/" + ver) then alreadyStaged = 1
+        if not alreadyStaged then
+            for entry in archive.staged
+                if entry.libName == libName and entry.version == ver then
+                    alreadyStaged = 1
+                    break
+                end if
+            end for
+        end if
+
+        if not alreadyStaged then
+            stageEntry = {
+                "libName": libName,
+                "version": ver,
+                "path": f.path,
+                "topScore": topScore,
+                "allScores": summary.allScores,
+                "isOffensive": isOffensive,
+                "isDefensive": isDefensive,
+                "conditions": null
+            }
+            archive.staged.push(stageEntry)
+            staged = staged + 1
+            tag = ""
+            if isOffensive then tag = tag + g.r1("[offensive]") + " "
+            if isDefensive then tag = tag + g.g1("[defensive]") + " "
+            print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (score=" + topScore + ") " + tag)
+        else
+            print g.const.indent + g.y1("  " + libName + " v" + ver + " already staged.")
+        end if
+    end for
+
+    g.func.saveShinylibsDb(archive)
+
+    print g.const.nl + g.const.indent + g.s2("Scanned " + total + " libraries, staged " + staged + " new entries.")
+    print g.const.indent + g.l2("Run 'shinylibs get' to copy staged libs to your archive.")
+end function
+
+// **shinylibs list:**
+// Displays archived and staged libraries grouped by name.
+// @return {none}
+shinylibsList = function()
+    archive = g.func.loadShinylibsDb
+
+    print g.const.nl + g.func.heading("ShinyLibs Archive")
+
+    if archive.records.len == 0 and archive.staged.len == 0 then
+        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan' on a target.")
+        return
+    end if
+
+    // Group records by libName
+    byLib = {}
+    for key in archive.records.indexes
+        parts = key.split("/")
+        if parts.len < 2 then continue
+        libName = parts[0]
+        if not byLib.hasIndex(libName) then byLib[libName] = []
+        byLib[libName].push(archive.records[key])
+    end for
+
+    libNames = byLib.indexes
+    libNames.sort
+
+    for libName in libNames
+        isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(libName) != null
+        remoteTag = ""
+        if isRemote then remoteTag = g.y1(" [remote-access]")
+        print g.const.indent + g.s2(libName) + remoteTag
+
+        recs = byLib[libName]
+
+        bestOffRec = null
+        bestDefRec = null
+
+        for rec in recs
+            if bestOffRec == null or rec.topScore > bestOffRec.topScore then bestOffRec = rec
+            if bestDefRec == null or rec.topScore < bestDefRec.topScore then bestDefRec = rec
+        end for
+
+        if bestOffRec != null then
+            print g.const.indent + "  " + g.r1("Best offensive:") + " v" + bestOffRec.version + g.const.tab + "score=" + bestOffRec.topScore
+        end if
+
+        if bestDefRec != null and bestDefRec.topScore == 0 then
+            print g.const.indent + "  " + g.g1("Most defensive:") + " v" + bestDefRec.version + g.const.tab + "score=0"
+        end if
+    end for
+
+    if archive.staged.len > 0 then
+        print g.const.nl + g.const.indent + g.s3("Staged (awaiting 'shinylibs get'):")
+        for entry in archive.staged
+            isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(entry.libName) != null
+            remoteTag = ""
+            if isRemote then remoteTag = g.y1(" [remote-access]")
+            tag = ""
+            if entry.isOffensive then tag = tag + g.r1("[off]") + " "
+            if entry.isDefensive then tag = tag + g.g1("[def]") + " "
+            print g.const.indent + "  " + g.l2(entry.libName + " v" + entry.version) + " score=" + entry.topScore + " " + tag + remoteTag
+        end for
+    end if
+
+    print ""
+end function
+
+// **shinylibs get:**
+// Copies staged libraries from the current context to the home archive.
+// Prompts y/n for each staged entry.
+// @return {none}
+shinylibsGet = function()
+    archive = g.func.loadShinylibsDb
+
+    if archive.staged.len == 0 then
+        print g.const.indent + g.d1("Nothing is staged.  Run 'shinylibs scan' on a target first.")
+        return
+    end if
+
+    idx = g.context.index
+    if not g.func.checkShell(idx) then return
+    context = g.stack[idx]
+    home = g.stack["0"]
+
+    collected = []
+
+    for i in range(0, archive.staged.len - 1)
+        entry = archive.staged[i]
+        tag = ""
+        if entry.isOffensive then tag = tag + " [offensive]"
+        if entry.isDefensive then tag = tag + " [defensive]"
+        prompt = g.const.indent + g.l2("Collect " + entry.libName + " v" + entry.version + tag + " (score=" + entry.topScore + ")? [y/N] ")
+        ans = user_input(prompt, 0, 0, 0)
+        if ans.lower != "y" then continue
+
+        destDir = g.const.SHINYLIBS_BIN_PATH + "/" + entry.libName + "/" + entry.version
+        if not g.func.ensureShinylibsDir(destDir) then
+            print g.error("shinylibs get: could not create directory " + destDir)
+            continue
+        end if
+
+        result = g.func.transfer(context.shell, entry.path, home.shell, destDir)
+        if not result then
+            print g.error("shinylibs get: transfer failed for " + entry.libName + " v" + entry.version + ". Entry remains staged.")
+            continue
+        end if
+
+        // Move from staged to records
+        archiveKey = entry.libName + "/" + entry.version
+        archiveRec = {
+            "libName": entry.libName,
+            "version": entry.version,
+            "path": destDir + "/" + entry.libName,
+            "topScore": entry.topScore,
+            "allScores": entry.allScores,
+            "isOffensive": entry.isOffensive,
+            "isDefensive": entry.isDefensive,
+            "conditions": entry.conditions
+        }
+        archive.records[archiveKey] = archiveRec
+        collected.push(i)
+        print g.const.indent + g.g1("Collected " + entry.libName + " v" + entry.version + " -> " + destDir)
+    end for
+
+    // Remove collected entries from staged (iterate in reverse to preserve indices)
+    i = collected.len - 1
+    while i >= 0
+        archive.staged.remove(collected[i])
+        i = i - 1
+    end while
+
+    g.func.saveShinylibsDb(archive)
+
+    print g.const.indent + g.s3("Collected " + collected.len + " of " + archive.staged.len + " staged entries.")
+end function
+
+// **shinylibs put:**
+// Replaces target /lib libraries with archived versions.
+// mode: "vuln" = most offensive, "harden" = most defensive.
+// @param {string} mode - "vuln" or "harden"
+// @return {none}
+shinylibsPut = function(mode)
+    if mode != "vuln" and mode != "harden" then
+        print g.error("shinylibs put: invalid mode '" + mode + "'. Use 'vuln' or 'harden'.")
+        return
+    end if
+
+    idx = g.context.index
+    if not g.func.checkShell(idx) then return
+    context = g.stack[idx]
+    home = g.stack["0"]
+
+    libsDir = context.computer.File("/lib")
+    if not libsDir then
+        print g.error("shinylibs put: /lib not found on current context.")
+        return
+    end if
+
+    archive = g.func.loadShinylibsDb
+
+    if archive.records.len == 0 then
+        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan' and 'shinylibs get' first.")
+        return
+    end if
+
+    // Build best-per-libname index from archive
+    bestByLib = {}
+    for key in archive.records.indexes
+        rec = archive.records[key]
+        libName = rec.libName
+        if not bestByLib.hasIndex(libName) then
+            bestByLib[libName] = rec
+        else
+            existing = bestByLib[libName]
+            if mode == "vuln" and rec.topScore > existing.topScore then
+                bestByLib[libName] = rec
+            else if mode == "harden" and rec.topScore < existing.topScore then
+                bestByLib[libName] = rec
+            end if
+        end if
+    end for
+
+    metax = context.metax
+    if metax == null then
+        print g.error("shinylibs put: metaxploit not attached on current context — cannot verify library versions. Run 'jump' to attach it first.")
+        return
+    end if
+
+    replaced = 0
+
+    for f in libsDir.get_files
+        if f.name[-3:] != ".so" then continue
+        libName = f.name
+
+        if not bestByLib.hasIndex(libName) then continue
+
+        best = bestByLib[libName]
+
+        // Check if target already has this version
+        metaLib = metax.load(f.path)
+        if metaLib != null and metaLib.version == best.version then
+            print g.const.indent + g.d1(libName + " already at v" + best.version + ", skipping.")
+            continue
+        end if
+
+        tag = ""
+        if mode == "vuln" then tag = " (offensive, score=" + best.topScore + ")"
+        if mode == "harden" then tag = " (defensive, score=" + best.topScore + ")"
+
+        prompt = g.const.indent + g.l2("Replace " + libName + " with v" + best.version + tag + "? [y/N] ")
+        ans = user_input(prompt, 0, 0, 0)
+        if ans.lower != "y" then continue
+
+        srcPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + best.version + "/" + libName
+
+        result = g.func.transfer(home.shell, srcPath, context.shell, "/lib")
+        if not result then
+            print g.error("shinylibs put: transfer failed for " + libName)
+            continue
+        end if
+
+        // Rename to canonical libName if needed (transfer may preserve source filename)
+        destFile = context.computer.File("/lib/" + libName)
+        if not destFile then
+            print g.error("shinylibs put: transferred file not found at /lib/" + libName)
+            continue
+        end if
+
+        replaced = replaced + 1
+        print g.const.indent + g.g1("Replaced " + libName + " with v" + best.version)
+    end for
+
+    print g.const.nl + g.const.indent + g.s3("Replaced " + replaced + " libraries.")
+    if replaced > 0 then
+        print g.const.indent + g.y1("Warning: SCP creates logs on the target.  Run 'corruptlogs' or 'log clear' to clean up.")
+    end if
+end function
+
+// Dispatcher for the shinylibs tool.
+// @param {list<string>} args - Command arguments.
+// @return {none}
+doShinylibs = function(args)
+    if not args or args == [] or args[0] == "-h" or args[0] == "help" then
+        self.help
+        return
+    end if
+
+    sub = args[0]
+
+    if sub == "scan" then
+        shinylibsScan
+    else if sub == "list" then
+        shinylibsList
+    else if sub == "get" then
+        shinylibsGet
+    else if sub == "put" then
+        if args.len < 2 then
+            print g.error("shinylibs put: specify 'vuln' or 'harden'.")
+            self.help
+            return
+        end if
+        shinylibsPut(args[1])
+    else
+        print g.error("shinylibs: unknown subcommand '" + sub + "'.")
+        self.help
+    end if
+end function
+
+g.tools.shinylibs = {
+    "name": "shinylibs",
+    "shortDescription": "Score, collect, and deploy library binaries.",
+    "exec": @doShinylibs,
+    "help": @shinylibsHelp,
+    "data": {}
+}
