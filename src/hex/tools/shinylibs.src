@@ -2,9 +2,9 @@
 // @return {none}
 shinylibsHelp = function()
     text = g.const.ni + g.l3("Usage:","u") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" Scans /lib on the current context for interesting libraries and stages the best ones.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" {path}") + g.l2(" Scans the target directory for .so libraries and stages every one found (default: /lib).") + g.const.ni
     text = text + g.g2(self.name) + g.b3(" list") + g.l2(" Lists archived libraries grouped by name, showing best offensive and most defensive versions.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Copies staged libraries to the local archive under /root/hex-shinylibs/.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Automatically copies all staged libraries to the local archive under /root/hex-shinylibs/.") + g.const.ni
     text = text + g.g2(self.name) + g.b3(" put vuln") + g.l2(" Replaces target /lib libraries with the most vulnerable archived versions.") + g.const.ni
     text = text + g.g2(self.name) + g.b3(" put harden") + g.l2(" Replaces target /lib libraries with the most hardened archived versions.") + g.const.ni
     text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Display this help text.") + g.const.nl
@@ -110,10 +110,11 @@ scoreLibFromCache = function(libName, ver)
 end function
 
 // **shinylibs scan:**
-// Scans all .so files in /lib on the current shell context.
-// Stages libs that beat the current archive for offensive score or add a new secure version.
+// Scans all .so files in the given directory (default /lib) on the current shell context.
+// Stages every library found.
+// @param {string} scanPath - Directory to scan (default "/lib").
 // @return {none}
-shinylibsScan = function()
+shinylibsScan = function(scanPath = "/lib")
     idx = g.context.index
     if not g.func.checkShell(idx) then return
     if not g.func.checkMetax(idx) then
@@ -123,9 +124,14 @@ shinylibsScan = function()
     context = g.stack[idx]
     metax = context.metax
 
-    libsDir = context.computer.File("/lib")
+    libsDir = context.computer.File(scanPath)
     if not libsDir then
-        print g.error("shinylibs scan: /lib not found on current context.")
+        print g.error("shinylibs scan: " + scanPath + " not found on current context.")
+        return
+    end if
+
+    if not libsDir.is_folder then
+        print g.error("shinylibs scan: " + scanPath + " is not a directory.")
         return
     end if
 
@@ -143,6 +149,25 @@ shinylibsScan = function()
 
         libName = metaLib.lib_name
         ver = metaLib.version
+        archiveKey = libName + "/" + ver
+
+        // Skip lib/version pairs already collected or already staged
+        if archive.records.hasIndex(archiveKey) then
+            print g.const.indent + g.d1("  " + libName + " v" + ver + " — already in archive, skipping.")
+            continue
+        end if
+
+        alreadyStaged = 0
+        for entry in archive.staged
+            if entry.libName == libName and entry.version == ver then
+                alreadyStaged = 1
+                break
+            end if
+        end for
+        if alreadyStaged then
+            print g.const.indent + g.d1("  " + libName + " v" + ver + " — already staged, skipping.")
+            continue
+        end if
 
         // Try to score from g.database cache first (avoids redundant metaxploit calls)
         summary = scoreLibFromCache(libName, ver)
@@ -154,7 +179,7 @@ shinylibsScan = function()
         end if
         topScore = summary.topScore
 
-        // Determine whether this is offensive/defensive candidate
+        // Determine whether this is the best offensive or most defensive candidate
         bestOffScore = -1
         bestDefScore = 999999
 
@@ -178,43 +203,22 @@ shinylibsScan = function()
         isOffensive = topScore > bestOffScore
         isDefensive = topScore == 0 and bestDefScore > 0
 
-        if not isOffensive and not isDefensive then
-            print g.const.indent + g.d1("  " + libName + " v" + ver + " (score=" + topScore + ") — not better than archive, skipping.")
-            continue
-        end if
-
-        // Add to staged if not already there and not already in the archive
-        alreadyStaged = 0
-        if archive.records.hasIndex(libName + "/" + ver) then alreadyStaged = 1
-        if not alreadyStaged then
-            for entry in archive.staged
-                if entry.libName == libName and entry.version == ver then
-                    alreadyStaged = 1
-                    break
-                end if
-            end for
-        end if
-
-        if not alreadyStaged then
-            stageEntry = {
-                "libName": libName,
-                "version": ver,
-                "path": f.path,
-                "topScore": topScore,
-                "allScores": summary.allScores,
-                "isOffensive": isOffensive,
-                "isDefensive": isDefensive,
-                "conditions": null
-            }
-            archive.staged.push(stageEntry)
-            staged = staged + 1
-            tag = ""
-            if isOffensive then tag = tag + g.r1("[offensive]") + " "
-            if isDefensive then tag = tag + g.g1("[defensive]") + " "
-            print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (score=" + topScore + ") " + tag)
-        else
-            print g.const.indent + g.y1("  " + libName + " v" + ver + " already staged.")
-        end if
+        stageEntry = {
+            "libName": libName,
+            "version": ver,
+            "path": f.path,
+            "topScore": topScore,
+            "allScores": summary.allScores,
+            "isOffensive": isOffensive,
+            "isDefensive": isDefensive,
+            "conditions": null
+        }
+        archive.staged.push(stageEntry)
+        staged = staged + 1
+        tag = ""
+        if isOffensive then tag = tag + g.r1("[offensive]") + " "
+        if isDefensive then tag = tag + g.g1("[defensive]") + " "
+        print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (score=" + topScore + ") " + tag)
     end for
 
     g.func.saveShinylibsDb(archive)
@@ -232,7 +236,7 @@ shinylibsList = function()
     print g.const.nl + g.func.heading("ShinyLibs Archive")
 
     if archive.records.len == 0 and archive.staged.len == 0 then
-        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan' on a target.")
+        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' on a target.")
         return
     end if
 
@@ -291,14 +295,14 @@ shinylibsList = function()
 end function
 
 // **shinylibs get:**
-// Copies staged libraries from the current context to the home archive.
-// Prompts y/n for each staged entry.
+// Copies all staged libraries from the current context to the home archive automatically.
+// On transfer failure the entry remains staged so it can be retried.
 // @return {none}
 shinylibsGet = function()
     archive = g.func.loadShinylibsDb
 
     if archive.staged.len == 0 then
-        print g.const.indent + g.d1("Nothing is staged.  Run 'shinylibs scan' on a target first.")
+        print g.const.indent + g.d1("Nothing is staged.  Run 'shinylibs scan [path]' on a target first.")
         return
     end if
 
@@ -308,19 +312,18 @@ shinylibsGet = function()
     home = g.stack["0"]
 
     collected = []
+    total = archive.staged.len
 
-    for i in range(0, archive.staged.len - 1)
+    for i in range(0, total - 1)
         entry = archive.staged[i]
         tag = ""
         if entry.isOffensive then tag = tag + " [offensive]"
         if entry.isDefensive then tag = tag + " [defensive]"
-        prompt = g.const.indent + g.l2("Collect " + entry.libName + " v" + entry.version + tag + " (score=" + entry.topScore + ")? [y/N] ")
-        ans = user_input(prompt, 0, 0, 0)
-        if ans.lower != "y" then continue
+        print g.const.indent + g.s3("Collecting " + entry.libName + " v" + entry.version + tag + " (score=" + entry.topScore + ")...")
 
         destDir = g.const.SHINYLIBS_BIN_PATH + "/" + entry.libName + "/" + entry.version
         if not g.func.ensureShinylibsDir(destDir) then
-            print g.error("shinylibs get: could not create directory " + destDir)
+            print g.error("shinylibs get: could not create directory " + destDir + ". Entry remains staged.")
             continue
         end if
 
@@ -340,11 +343,12 @@ shinylibsGet = function()
             "allScores": entry.allScores,
             "isOffensive": entry.isOffensive,
             "isDefensive": entry.isDefensive,
-            "conditions": entry.conditions
+            "conditions": entry.conditions,
+            "archivedAt": time
         }
         archive.records[archiveKey] = archiveRec
         collected.push(i)
-        print g.const.indent + g.g1("Collected " + entry.libName + " v" + entry.version + " -> " + destDir)
+        print g.const.indent + g.g1("  -> " + destDir)
     end for
 
     // Remove collected entries from staged (iterate in reverse to preserve indices)
@@ -356,7 +360,8 @@ shinylibsGet = function()
 
     g.func.saveShinylibsDb(archive)
 
-    print g.const.indent + g.s3("Collected " + collected.len + " of " + archive.staged.len + " staged entries.")
+    failed = total - collected.len
+    print g.const.indent + g.s3("Collected " + collected.len + " of " + total + " staged entries." + (failed > 0 and " " + failed + " failed — retry with 'shinylibs get'." or ""))
 end function
 
 // **shinylibs put:**
@@ -384,7 +389,7 @@ shinylibsPut = function(mode)
     archive = g.func.loadShinylibsDb
 
     if archive.records.len == 0 then
-        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan' and 'shinylibs get' first.")
+        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' and 'shinylibs get' first.")
         return
     end if
 
@@ -473,7 +478,11 @@ doShinylibs = function(args)
     sub = args[0]
 
     if sub == "scan" then
-        shinylibsScan
+        if args.len > 1 then
+            shinylibsScan(args[1])
+        else
+            shinylibsScan
+        end if
     else if sub == "list" then
         shinylibsList
     else if sub == "get" then

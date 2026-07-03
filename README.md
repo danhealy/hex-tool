@@ -224,20 +224,35 @@ rshell -c                            Kill all rshell processes
 rshell -h                            Display help text
 ```
 
-**Setup:** Create `/root/SecureLibs/` on your in-game home computer and populate it with `librshell.so` in order to use `rshell start`.
+**Setup:** Run `shinylibs scan [path]` on a directory that contains `librshell.so`, then `shinylibs get` to archive it, in order to use `rshell start`.
 
 ---
 
 ### `poison`
 
-Uploads insecure/vulnerable library files from your local `/root/InsecureLibs` folder to the target's `/lib` directory, enabling further exploitation via `scan` and `hack`.
+Uploads the best-offensive version of every library in the shinylibs archive to the target's `/lib` directory, enabling further exploitation via `scan` and `hack`.
 
 ```
-poison       Upload insecure libraries to target /lib (will upload all libraries found in /root/InsecureLibs)
+poison       Upload best-offensive archived libraries to target /lib
 poison -h    Display help text
 ```
 
-**Setup:** Create `/root/InsecureLibs/` on your in-game home computer and populate it with vulnerable `.so` files matching the versions configured in `constants.src`.
+**Setup:** Populate the archive with `shinylibs scan [path]` and `shinylibs get`.
+
+---
+
+### `shinylibs`
+
+Scores, collects, and deploys library binaries. The archive is the single source for `poison` payloads and the `rshell` utility library.
+
+```
+shinylibs scan {path}    Scan a directory for .so files and stage every one found (default: /lib)
+shinylibs list           List archived libraries grouped by name
+shinylibs get            Copy all staged libraries to the local archive
+shinylibs put vuln       Replace target /lib libraries with the most offensive archived versions
+shinylibs put harden     Replace target /lib libraries with the most defensive archived versions
+shinylibs -h             Display help text
+```
 
 ---
 
@@ -259,7 +274,7 @@ net -z/zday          List all mail accounts; print From/Subject of every inbox m
 net -h               Display help text
 ```
 
-**Setup:** In order to use this on a router (so that it will work network-wide), you have to create `/root/InsecureLibs/` on your home computer, and populate it with the root bounce library that matches the version and library `insecureComp` type specified in `constants.src`.
+**Setup:** In order to use this on a router (so that it will work network-wide), you have to archive a vulnerable bounce library with `shinylibs scan [path]` and `shinylibs get`.
 
 ---
 
@@ -719,23 +734,6 @@ hex-tool/
 
 ## Configuration
 
-### `constants.src`
-
-Edit `src/hex/constants.src` to configure HEX for your game mode:
-
-```python
-# Multiplayer (default)
-g.const.insecureComp = ["/root/InsecureLibs/init.so", "1.0.0", "0x32E65B93", "indopositionx"]
-
-# Nightly build servers
-# g.const.insecureComp = ["/root/InsecureLibs/init.so", "1.0.2", "0x7D6EE022", "stconobjecttransf"]
-
-# Singleplayer
-# g.const.insecureComp = ["/root/InsecureLibs/net.so", "1.0.0", "0x18EBA092", "redit0"]
-```
-
-Uncomment the block matching your game mode before building.
-
 ### Environment Variables
 
 HEX reads two optional environment variables during compilation.  Note that this functionality is only supported with greybel, and these variables must be configured in the greyble-vs settings (transpiler environment variables):
@@ -754,10 +752,6 @@ HEX stores persistent settings in `/etc/hex.conf` on your home computer, encrypt
 - **Mail credentials** — mail is logged in on startup if configured
 
 This replaces the need to configure environment variables for proxies and rshell in the Greybel transpiler settings, though those environment variables are still supported as a fallback.
-
-### InsecureLibs Folder
-
-The `poison` command uploads files from `/root/InsecureLibs/` on your home computer. Populate this folder with vulnerable `.so` files to use as poison payloads.
 
 ---
 

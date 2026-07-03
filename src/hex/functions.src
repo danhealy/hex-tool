@@ -1081,8 +1081,59 @@ g.func.checkFile = function(idx)
     return 1
 end function
 
+// Returns the archived shinylib record with the highest topScore for a library name.
+// @param {string} libName - The library name (e.g. "libssh.so").
+// @return {map|null} - The best-offensive record, or null if none exists.
+g.func.getBestOffensiveLib = function(libName)
+    archive = g.func.loadShinylibsDb
+
+    best = null
+    for key in archive.records.indexes
+        rec = archive.records[key]
+        if rec.libName != libName then continue
+        if best == null or rec.topScore > best.topScore then best = rec
+    end for
+
+    return best
+end function
+
+// Returns the most secure archived shinylib record for a utility library.
+// Selection rule: lowest topScore, tie-broken by highest version string, then most recently archived.
+// @param {string} libName - The library name (e.g. "librshell.so").
+// @return {map|null} - The most secure record, or null if none exists.
+g.func.getSecureUtilityLib = function(libName)
+    archive = g.func.loadShinylibsDb
+
+    best = null
+    for key in archive.records.indexes
+        rec = archive.records[key]
+        if rec.libName != libName then continue
+
+        if best == null then
+            best = rec
+            continue
+        end if
+
+        if rec.topScore < best.topScore then
+            best = rec
+        else if rec.topScore == best.topScore then
+            recVer = rec.version
+            bestVer = best.version
+            if recVer > bestVer then
+                best = rec
+            else if recVer == bestVer then
+                recTime = rec.hasIndex("archivedAt") and rec.archivedAt or 0
+                bestTime = best.hasIndex("archivedAt") and best.archivedAt or 0
+                if recTime > bestTime then best = rec
+            end if
+        end if
+    end for
+
+    return best
+end function
+
 // Attaches the rshell library to the context at the given index.
-// Uploads librshell.so from SecureLibs if not already present on the target.
+// Uploads the most secure archived librshell.so if not already present on the target.
 // @param {string} idx - The index of the context.
 // @param {number} silent - If 1, suppresses status messages.
 // @return {number} - 1 if successful, 0 otherwise.
@@ -1092,7 +1143,13 @@ g.func.attach_rshell = function(idx, silent = 0)
     lib = g.stack[idx].computer.File("/lib/librshell.so")
 
     if not lib then
-        if not g.func.putLib("/root/SecureLibs", "librshell.so", "/lib", idx) then
+        rec = g.func.getSecureUtilityLib("librshell.so")
+        if not rec then
+            print g.error("librshell.so is not archived. Run 'shinylibs scan [path]' on a directory that contains it.")
+            return 0
+        end if
+
+        if not g.func.put(rec.path, "/lib") then
             print g.error("Could not upload librshell.so.")
             return 0
         end if
