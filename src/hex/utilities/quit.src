@@ -19,13 +19,20 @@ quit = function(args)
         end if
     end if
     clear_screen
-    g.command = "exit"
     exit(g.const.nl*2 + g.s2("[HEX] Goodbye!!") + g.const.nl)
 end function
 
 g.util.quit = {
     "name": "quit",
     "shortDescription": "Clears the screen and exits the program.",
+    "exec": @quit,
+    "help": @quitHelp,
+    "data": {}
+}
+
+g.util.exit = {
+    "name": "exit",
+    "shortDescription": "Alias for quit. Clears the screen and exits the program.",
     "exec": @quit,
     "help": @quitHelp,
     "data": {}

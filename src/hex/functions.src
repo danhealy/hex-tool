@@ -605,8 +605,9 @@ end function
 // Retrieves the router object for the given IP address.
 // @param {string|null} ip - The IP address to get the router for, or null to get the current router.
 // @return {router|null} - The router object or null if not found.
-g.func.getRouter = function(ip = null)
-    context = g.stack[g.context.index]
+g.func.getRouter = function(ip = null, idx = null)
+    if idx == null then idx = g.context.index
+    context = g.stack[idx]
 
     if context.type != "shell" then
         print g.error("Current context is not a shell.")
@@ -622,7 +623,7 @@ g.func.getRouter = function(ip = null)
         return
     end if
 
-    g.func.run(src)
+    g.func.run(src, 0, idx)
 
     if not g.hasIndex("temp") then
         print g.error("Something went wrong!!")
@@ -1939,7 +1940,17 @@ g.func.loadExploitDb = function
     if content == null or content == "" then return
     data = g.func.deserialize(content)
     if data == null or not (data isa map) then return
+    if data.hasIndex("__unhandledRequirements") and data.__unhandledRequirements isa list then
+        g.unhandledRequirements = data.__unhandledRequirements
+        g.database.__unhandledRequirements = g.unhandledRequirements
+    end if
+    if data.hasIndex("__requirementPatterns") and data.__requirementPatterns isa list then
+        g.requirementPatterns = data.__requirementPatterns
+        g.database.__requirementPatterns = g.requirementPatterns
+    end if
+
     for libName in data.indexes
+        if libName.len >= 2 and libName[:2] == "__" then continue
         if not (data[libName] isa map) then continue
         if not g.database.hasIndex(libName) then g.database[libName] = {}
         for ver in data[libName].indexes

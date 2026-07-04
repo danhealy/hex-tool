@@ -16,7 +16,9 @@ end function
 // @param {list<string>} args - [ip] or [ip, port] for remote; [library.so] for local.
 // @return {number} - 1 on success, 0 on failure.
 doScan = function(args)
-    idx = g.context.index
+    // Scanning is always performed from the home machine so metaxploit.so is
+    // available and DB persistence stays consistent.
+    idx = "0"
     context = g.stack[idx]
     if not g.tools.scan.data.hasIndex("silent") then g.tools.scan.data.silent = 0
 
@@ -59,7 +61,17 @@ doScan = function(args)
                     values.sort
 
                     for value in values
-                        output = output + g.const.indent + "      <size=80%>" + g.o1("Value: " + value + "<pos=550>Result: " + g.database[lib][version][mem][value]) + g.const.nl
+                        record = g.func.getExploitRecord(lib, version, mem, value)
+
+                        resultText = "untested"
+                        if record.tested == 1 and record.resultType != null then
+                            resultText = record.resultType
+                            if record.resultUser != null then
+                                resultText = resultText + " (" + record.resultUser + ")"
+                            end if
+                        end if
+
+                        output = output + g.const.indent + "      <size=80%>" + g.o1("Value: " + value + "<pos=550>Result: " + resultText) + g.const.nl
                     end for
                 end for
             end for
@@ -70,7 +82,7 @@ doScan = function(args)
     end function
 
     // Scans each library in metaLibs for memory addresses and vulnerable values, populating
-    // g.database with the results.  Skips entries that are already fully resolved.
+    // g.database with the results.  Skips libraries whose memory addresses and values are already known.
     // @param {list<metaLib>} metaLibs - The meta library objects to scan.
     // @return {number} - Always 1.
     scanMetaLibs = function(metaLibs)
@@ -99,16 +111,6 @@ doScan = function(args)
                         rescan = 1
                         break
                     end if
-
-                    for value in values
-                        res = g.database[metaLib.lib_name][metaLib.version][mem][value]
-                        if typeof(res) != "string" or res == "" then
-                            rescan = 1
-                            break
-                        end if
-                    end for
-                    
-                    if rescan == 1 then break
                 end for
             end if
 
@@ -123,22 +125,30 @@ doScan = function(args)
                     for vuln in vulns
                         value = vuln[vuln.indexOf("<b>")+3:vuln.indexOf("</b>")]
 
-                        g.database[metaLib.lib_name][metaLib.version][mem][value] = ""
+                        record = g.func.getExploitRecord(metaLib.lib_name, metaLib.version, mem, value)
+                        record.extraArg = g.func.classifyExtraArg(vuln)
+                        parsedReqs = g.func.parseScanAddress(vuln)
+                        g.func.mergeRequirements(record.requirements, parsedReqs)
+                        if parsedReqs.unknown != null and parsedReqs.unknown isa list then
+                            for unk in parsedReqs.unknown
+                                g.func.addUnhandledRequirement(unk)
+                            end for
+                        end if
+                        g.func.setExploitRecord(metaLib.lib_name, metaLib.version, mem, value, record)
                     end for
                 end for
             end if
         end for
 
         if dirty then g.func.saveExploitDb
+        g.func.reportUnhandledRequirements
         return 1
     end function
 
-    // Scans a local library by loading it from /lib on the current context and running scanMetaLibs.
+    // Scans a local library by loading it from /lib on the home machine and running scanMetaLibs.
     // @param {string} libName - Full path to the library (e.g. "/lib/metaxploit.so").
     // @return {number} - 1 on success, 0 on failure.
     scanLocal = function(libName)
-        idx = g.context.index
-
         if not g.func.checkShell(idx) then return 0
         if not g.func.checkMetax(idx) then return 0
 
@@ -164,17 +174,10 @@ doScan = function(args)
     // @param {number} port - Target port number.
     // @return {number} - 1 on success, 0 on failure.
     scanRemote = function(ip, port)
-        idx = g.context.index
-
-        if g.hasIndex("proxy") and g.proxy != "" and typeof(g.proxy.to_int) == "number" and not is_lan_ip(ip) then
-            idx = g.proxy
-            print g.g1(g.const.indent + "Using proxy: " + g.stack[idx].public)
-        end if
-        
         if not g.func.checkShell(idx) then return 0
         if not g.func.checkMetax(idx) then return 0
 
-        netSession = g.stack[idx].metax.net_use(ip, port)
+        netSession = context.metax.net_use(ip, port)
 
         if typeof(netSession) == "string" then
             print g.error(netSession)
@@ -201,17 +204,10 @@ doScan = function(args)
     // @param {string} ip - Target IP address (public or LAN).
     // @return {number} - 1 on success, 0 on failure.
     scanAllPorts = function(ip)
-        idx = g.context.index
-
-        if g.hasIndex("proxy") and g.proxy != "" and typeof(g.proxy.to_int) == "number" and not is_lan_ip(ip) then
-            idx = g.proxy
-            print g.g1(g.const.indent + "Using proxy: " + g.stack[idx].public)
-        end if
-
         if not g.func.checkShell(idx) then return 0
         if not g.func.checkMetax(idx) then return 0
 
-        router = g.func.getRouter(ip)
+        router = g.func.getRouter(ip, idx)
 
         if not is_lan_ip(ip) then
             ports = router.device_ports(router.local_ip)
@@ -228,7 +224,7 @@ doScan = function(args)
             if port.port_number == 8080 then isRouter = 1
             if port.is_closed and not is_lan_ip(ip) then continue
 
-            netSession = g.stack[idx].metax.net_use(ip, port.port_number)
+            netSession = context.metax.net_use(ip, port.port_number)
 
             if not netSession then
                 print(g.error("Could not connect to " + ip + ":" + port.port_number))
@@ -242,7 +238,7 @@ doScan = function(args)
         end for
 
         if isRouter then
-            netSession = g.stack[idx].metax.net_use(ip, 0)
+            netSession = context.metax.net_use(ip, 0)
 
             if not netSession then
                 print(g.error("Could not connect to " + ip + ":0"))

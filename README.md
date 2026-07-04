@@ -592,6 +592,15 @@ quit      Exit the program
 quit -h   Display help text
 ```
 
+### `exit`
+
+Alias for `quit`.
+
+```
+exit      Exit the program
+exit -h   Display help text
+```
+
 ---
 
 ## Filesystem Commands
@@ -616,6 +625,16 @@ cd [folder]    Change to the specified directory
 cd ..          Go up one level
 cd /           Go to root
 cd -h          Display help text
+```
+
+### `ls`
+
+Lists files and directories in the current context's working directory. Unlike the native `/bin/ls` binary, this respects HEX's tracked `currentPath` (the same path shown in the prompt).
+
+```
+ls          List files and directories in the current directory
+ls {path}   List files and directories at the specified path
+ls -h       Display help text
 ```
 
 ### `rm`
@@ -689,6 +708,7 @@ hex-tool/
 │       │   ├── cat.src
 │       │   ├── cd.src
 │       │   ├── kill.src
+│       │   ├── ls.src
 │       │   ├── ps.src
 │       │   ├── reboot.src
 │       │   └── rm.src

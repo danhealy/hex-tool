@@ -84,10 +84,11 @@ hack = function(args)
                 end if
 
                 for value in values
-                    savedResult = g.database[metalib.lib_name][metalib.version][mem][value]
+                    savedResult = g.func.getExploitRecord(metalib.lib_name, metalib.version, mem, value)
 
                     print g.const.indent + g.s3("Trying memory address " + mem + " with value " + value + " in " + metalib.lib_name + " at version " + metalib.version)
                     temp = metalib.overflow(mem, value, extra)
+                    output = ""
 
                     result = {}
                     result.obj = temp
@@ -96,6 +97,11 @@ hack = function(args)
 
                     if temp == null then
                         type = "null"
+                        output = user_input("")
+                    else if typeof(temp) == "string" then
+                        type = "null"
+                        output = temp
+                        temp = null
                     else
                         type = typeof(temp)
                     end if
@@ -105,12 +111,13 @@ hack = function(args)
 
                     if type == "number" then
                         if extra == "" and result.obj == 1 then
-                            result.type = "disabled firewall"
+                            result.type = "firewall"
                             result.user = g.d1("N/A")
                         else if extra == "" and result.obj == 0 then
                             input = user_input("")
+                            output = input
                             if input.is_match(pattern) then
-                                result.type = "password reset"
+                                result.type = "passwordReset"
                                 m = input.matches(pattern)
                                 user = m[m.indexes[0]].split(" ")[1]
                                 result.user = user.getUser
@@ -119,9 +126,10 @@ hack = function(args)
                                 result.user = g.d1("N/A")
                             end if
                         else if extra != "" then
-                            result.type = "password or firewall"
+                            result.type = "firewall"
 
                             input = user_input("")
+                            output = input
                             if input.is_match("Unable to find non root user in computer") then
                                 result.type = "computer"
                                 result.user = "non-root user"
@@ -172,19 +180,18 @@ hack = function(args)
 
                     results.push(result)
 
-                    if savedResult == "" then
-                        if result.type == "shell" or result.type == "computer" or result.type == "file" or result.type == "password reset" then
-                            user = result.user
-
-                            if user == "root" or user == "guest" then
-                                g.database[metalib.lib_name][metalib.version][mem][value] = result.type + " " + user
-                            else if user != null then
-                                g.database[metalib.lib_name][metalib.version][mem][value] = result.type + " user (" + user + ")"
-                            end if
+                    record = savedResult
+                    record.tested = 1
+                    record.lastOutput = output
+                    if result.type != "null" then
+                        record.resultType = result.type
+                        if result.user == g.d1("N/A") then
+                            record.resultUser = null
                         else
-                            g.database[metalib.lib_name][metalib.version][mem][value] = result.type
+                            record.resultUser = result.user
                         end if
                     end if
+                    g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
                 end for
             end for
         end for
@@ -218,45 +225,64 @@ hack = function(args)
                 end if
 
                 for value in values
-                    savedResult = g.database[metalib.lib_name][metalib.version][mem][value]
+                    savedResult = g.func.getExploitRecord(metalib.lib_name, metalib.version, mem, value)
 
-                    if savedResult == "" or savedResult == "null" or typeof(savedResult.indexOf("computer")) == "number" then
-                        print g.const.indent + g.s3("Trying memory address " + mem + " with value " + value + " in " + metalib.lib_name + " at version " + metalib.version)
-                        temp = metalib.overflow(mem, value, address)
-                        if not temp then continue
+                    runIt = savedResult.resultType == null or savedResult.resultType == "null" or savedResult.resultType == "computer"
+                    if not runIt then continue
 
-                        type = typeof(temp)
+                    print g.const.indent + g.s3("Trying memory address " + mem + " with value " + value + " in " + metalib.lib_name + " at version " + metalib.version)
+                    temp = metalib.overflow(mem, value, address)
 
-                        if type == "computer" then
-                            user = temp.getUser(0)
+                    record = savedResult
+                    record.tested = 1
+                    output = ""
+                    if not temp then
+                        output = user_input("")
+                        record.lastOutput = output
+                        g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
+                        continue
+                    end if
 
-                            if user == "root" then
-                                g.database[metalib.lib_name][metalib.version][mem][value] = "computer root"
-                                if temp.local_ip == address then return temp
-                            else if user == "guest" then
-                                g.database[metalib.lib_name][metalib.version][mem][value] = "computer guest"
-                                if result == null and temp.local_ip == address then result = temp
-                            else if user != null then
-                                g.database[metalib.lib_name][metalib.version][mem][value] = "computer user"
-                                if temp.local_ip == address then result = temp
-                            else
-                                print g.const.indent + g.error("Could not determine user for object: " + typeof(temp))
-                            end if
-                        else                            
-                            if type == "shell" or type == "file" then
-                                user = temp.getUser(0)
+                    type = typeof(temp)
 
-                                if user == "root" or user == "guest" then
-                                    g.database[metalib.lib_name][metalib.version][mem][value] = type + " " + user
-                                else if user != null then
-                                    g.database[metalib.lib_name][metalib.version][mem][value] = type + " user"
-                                end if
-                            else
-                                g.database[metalib.lib_name][metalib.version][mem][value] = type
-                            end if
+                    if type == "computer" then
+                        user = temp.getUser(0)
+
+                        if user == "root" then
+                            record.resultType = "computer"
+                            record.resultUser = "root"
+                            g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
+                            if temp.local_ip == address then return temp
+                        else if user == "guest" then
+                            record.resultType = "computer"
+                            record.resultUser = "guest"
+                            g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
+                            if result == null and temp.local_ip == address then result = temp
+                        else if user != null then
+                            record.resultType = "computer"
+                            record.resultUser = user
+                            g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
+                            if temp.local_ip == address then result = temp
+                        else
+                            print g.const.indent + g.error("Could not determine user for object: " + typeof(temp))
                         end if
                     else
-                        continue
+                        if type == "shell" or type == "file" then
+                            user = temp.getUser(0)
+
+                            record.resultType = type
+                            if user == "root" or user == "guest" then
+                                record.resultUser = user
+                            else if user != null then
+                                record.resultUser = user
+                            else
+                                record.resultUser = "unknown"
+                            end if
+                        else
+                            record.resultType = type
+                            record.resultUser = null
+                        end if
+                        g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
                     end if
                 end for
             end for
@@ -309,6 +335,16 @@ hack = function(args)
             end if
         end for
         return metaLibs
+    end function
+
+    // Scans a single local meta library silently, logging the library name first.
+    // @param {object} metaLib - The meta library wrapper object containing .metalib.
+    // @return {none}
+    scanLocalLib = function(metaLib)
+        print g.const.indent + g.s3("Scanning " + metaLib.metalib.lib_name + " at version " + metaLib.metalib.version + "...")
+        g.tools.scan.data.silent = 1
+        g.tools.scan.exec([metaLib.metalib.lib_name])
+        g.tools.scan.data.silent = 0
     end function
 
     // Retrieves a remote library by IP address and port.
@@ -416,11 +452,8 @@ hack = function(args)
                     extra = args[2]
                 end if
                 if args[1][-3:] == ".so" then
-                    g.tools.scan.data.silent = 1
-                    g.tools.scan.exec([args[1]])
-                    g.tools.scan.data.silent = 0
-
                     metaLibs = getLocalLib(args[1])
+                    if metaLibs.len > 0 then scanLocalLib(metaLibs[0])
 
                     results = getObjects(metaLibs, context.public, extra)
 
@@ -434,10 +467,9 @@ hack = function(args)
                     if is_lan_ip(args[1]) then
                         metaLibs = getAllLocalLibs
 
+                        print g.const.indent + g.s3("Scanning local libraries for " + args[1] + "...")
                         for metaLib in metaLibs
-                            g.tools.scan.data.silent = 1
-                            g.tools.scan.exec([metaLib.metalib.lib_name])
-                            g.tools.scan.data.silent = 0
+                            scanLocalLib(metaLib)
                         end for
 
                         result = getBounce(metaLibs, args[1])
@@ -467,10 +499,9 @@ hack = function(args)
             else
                 metaLibs = getAllLocalLibs()
 
+                print g.const.indent + g.s3("Scanning all local libraries...")
                 for metaLib in metaLibs
-                    g.tools.scan.data.silent = 1
-                    g.tools.scan.exec([metaLib.metalib.lib_name])
-                    g.tools.scan.data.silent = 0
+                    scanLocalLib(metaLib)
                 end for
 
                 extra = ""
@@ -503,6 +534,7 @@ hack = function(args)
                 if args.len > 1 then
                     if is_valid_ip(args[1]) then
                         if is_lan_ip(args[1]) then
+                            print g.const.indent + g.s3("Scanning " + target + " for " + args[1] + "...")
                             g.tools.scan.data.silent = 1
                             if g.tools.scan.exec([target]) == 0 then return 0
                             g.tools.scan.data.silent = 0
@@ -529,6 +561,7 @@ hack = function(args)
                             return
                         end if
                     else if typeof(args[1].to_int) == "number" and args[1].to_int >= 0 and args[1].to_int <= 65535 then
+                        print g.const.indent + g.s3("Scanning " + target + " on port " + args[1] + "...")
                         g.tools.scan.data.silent = 1
                         if g.tools.scan.exec([target, args[1]]) == 0 then return 0
                         g.tools.scan.data.silent = 0
@@ -570,6 +603,7 @@ hack = function(args)
                         return
                     end if
                 else
+                    print g.const.indent + g.s3("Scanning " + target + "...")
                     g.tools.scan.data.silent = 1
                     if g.tools.scan.exec([target]) == 0 then return 0
                     g.tools.scan.data.silent = 0
