@@ -170,7 +170,16 @@ g.func.get_rshells = function(idx)
     end if
 
     for shell in shells
+        if typeof(shell) != "shell" then continue
         rs = shell.createContext("rshell")
+        if rs == null then continue
+        if not (rs isa g.Target) then
+            target = new g.Target
+            for key in rs.indexes
+                target[key] = rs[key]
+            end for
+            rs = target
+        end if
         g.stack.add(rs)
     end for
 
