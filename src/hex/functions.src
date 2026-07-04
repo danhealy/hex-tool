@@ -1345,8 +1345,11 @@ end function
 // @return {number} - 1 if successful, 0 otherwise.
 g.func.silent_delete = function(file)
     if file == null then return 0
+    if typeof(file) != "file" then return 0
 
     walk = function(file, path)
+        if typeof(file) != "file" then return null
+
         files = file.get_folders + file.get_files
 
         for f in files
@@ -1946,6 +1949,10 @@ g.func.loadExploitDb = function
                 if not (data[libName][ver][mem] isa map) then continue
                 if not g.database[libName][ver].hasIndex(mem) then g.database[libName][ver][mem] = {}
                 for value in data[libName][ver][mem].indexes
+                    if not g.database[libName][ver][mem].hasIndex(value) then
+                        g.database[libName][ver][mem][value] = data[libName][ver][mem][value]
+                        continue
+                    end if
                     existing = g.database[libName][ver][mem][value]
                     saved = data[libName][ver][mem][value]
                     if existing == "" or existing == null then
