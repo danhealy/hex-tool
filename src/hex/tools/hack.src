@@ -122,14 +122,14 @@ hack = function(args)
                     else if type == "shell" or type == "computer" then
                         result.type = type
                         result.address = temp.getLocal
-                        result.user = temp.getUser(1)
+                        result.user = g.func.normalizeResultUser(temp.getUser(1))
 
                         item = temp.createContext("overflow")
                         g.stack.add(item)
                     else if type == "file" then
                         result.type = type
                         result.address = address
-                        result.user = temp.getUser(1)
+                        result.user = g.func.normalizeResultUser(temp.getUser(1))
 
                         item = temp.createContext("overflow")
                         item.local = address
@@ -225,7 +225,7 @@ hack = function(args)
                     type = typeof(temp)
 
                     if type == "computer" then
-                        user = temp.getUser(0)
+                        user = g.func.normalizeResultUser(temp.getUser(0))
 
                         if user == "root" then
                             record.resultType = "computer"
@@ -247,13 +247,13 @@ hack = function(args)
                         end if
                     else
                         if type == "shell" or type == "file" then
-                            user = temp.getUser(0)
+                            user = g.func.normalizeResultUser(temp.getUser(0))
 
                             record.resultType = type
                             if user == "root" or user == "guest" then
                                 record.resultUser = user
                             else if user != null then
-                                record.resultUser = user
+                                record.resultUser = "user"
                             else
                                 record.resultUser = "unknown"
                             end if

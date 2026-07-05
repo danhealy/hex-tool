@@ -2022,6 +2022,9 @@ g.func.loadExploitDb = function
             g.func.mergeExploitDbLibrary(libName, shardData[libName])
         end for
     end if
+
+    changed = g.func.cleanResultUsersInDb
+    if changed > 0 then g.func.saveExploitDb
 end function
 
 // **Save Exploit DB:**
@@ -2122,6 +2125,14 @@ g.func.loadShinylibsDb = function
     if data == null or not (data isa map) then return {"records": {}, "staged": []}
     if not data.hasIndex("records") then data["records"] = {}
     if not data.hasIndex("staged") then data["staged"] = []
+
+    for key in data.records.indexes
+        rec = data.records[key]
+        if rec isa map and rec.hasIndex("requirements") and rec.requirements isa map then
+            rec.requirements = g.func.ensureExploitRequirements(rec.requirements)
+        end if
+    end for
+
     return data
 end function
 

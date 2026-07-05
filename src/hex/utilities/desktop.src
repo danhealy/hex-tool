@@ -79,6 +79,7 @@ doDesktop = function(args = null)
             continue
         end if
 
+        if launched.len > 0 then wait(2)
         home.shell.launch(file.path)
         launched.push(name)
     end for

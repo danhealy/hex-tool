@@ -116,6 +116,7 @@ doScan = function(args)
 
             if rescan then
                 dirty = 1
+                print g.const.indent + g.s3("Scanning " + metaLib.lib_name + " at version " + metaLib.version + "...")
                 mems = g.stack["0"].metax.scan(metaLib)
 
                 for mem in mems
