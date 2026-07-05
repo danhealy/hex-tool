@@ -1,16 +1,16 @@
 // Prints usage text for the shinylibs tool.
 // @return {none}
-shinylibsHelp = function()
-    text = g.const.ni + g.l3("Usage:","u") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" {path} {force}") + g.l2(" Scans the target directory for .so libraries and stages every one found (default: /lib). Use 'force' to rescan already-archived or staged libraries.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" list") + g.l2(" Lists all known library versions, marking any version missing from the home archive in bold, plus the best unrestricted/restricted exploits per handle type and any unhandled requirement patterns.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" list clear-unhandled") + g.l2(" Clears the persistent unhandled requirement pattern list.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" req-patterns") + g.l2(" Dumps every unique requirement bullet pattern seen, marked handled or unhandled.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Automatically copies all staged libraries to the local archive under /root/hex-shinylibs/.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" put vuln") + g.l2(" Replaces target /lib libraries with the most vulnerable archived versions.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" put harden") + g.l2(" Replaces target /lib libraries with the most hardened archived versions.") + g.const.ni
-    text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Display this help text.") + g.const.nl
-    print(text)
+shinylibsHelp = function
+	text = g.const.ni + g.l3("Usage:", "u") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" {path} {force}") + g.l2(" Scans the target directory for .so libraries and stages every one found (default: /lib). Use 'force' to rescan already-archived or staged libraries.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" list") + g.l2(" Lists all known library versions, marking any version missing from the home archive in bold, plus the best unrestricted/restricted exploits per handle type and any unhandled requirement patterns.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" list clear-unhandled") + g.l2(" Clears the persistent unhandled requirement pattern list.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" req-patterns") + g.l2(" Dumps every unique requirement bullet pattern seen, marked handled or unhandled.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Copies all staged libraries to the local archive under /root/hex-shinylibs/. If nothing is staged, /lib is auto-scanned and any unscanned .so files are copied.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" put vuln") + g.l2(" Replaces target /lib libraries with the most vulnerable archived versions.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" put harden") + g.l2(" Replaces target /lib libraries with the most hardened archived versions.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Display this help text.") + g.const.nl
+	print text
 end function
 
 // Scores a single scan_address result line.
@@ -18,43 +18,43 @@ end function
 // @param {string} result - A single result string from metax.scan_address (the part after "Unsafe check: ").
 // @return {number} - The calculated score (floored at 0).
 scoreScanResult = function(result)
-    lower = result.lower
+	lower = result.lower
 
-    // Base score by result type
-    score = 0
-    if lower.indexOf("root shell") != null then
-        score = 100
-    else if lower.indexOf("shell") != null then
-        score = 60
-    else if lower.indexOf("computer") != null then
-        score = 20
-    else if lower.indexOf("file") != null then
-        score = 10
-    else if lower.indexOf("firewall") != null or lower.indexOf("number") != null then
-        score = 5
-    end if
+	// Base score by result type
+	score = 0
+	if lower.indexOf("root shell") != null then
+		score = 100
+	else if lower.indexOf("shell") != null then
+		score = 60
+	else if lower.indexOf("computer") != null then
+		score = 20
+	else if lower.indexOf("file") != null then
+		score = 10
+	else if lower.indexOf("firewall") != null or lower.indexOf("number") != null then
+		score = 5
+	end if
 
-    // Constraint penalties
-    if lower.indexOf("any user") != null then
-        score = score - 20
-    else if lower.indexOf("admin") != null or lower.indexOf("active user") != null then
-        score = score - 40
-    end if
+	// Constraint penalties
+	if lower.indexOf("any user") != null then
+		score -= 20
+	else if lower.indexOf("admin") != null or lower.indexOf("active user") != null then
+		score -= 40
+	end if
 
-    if lower.indexOf("registered users") != null or lower.indexOf("user count") != null then
-        score = score - 10
-    end if
+	if lower.indexOf("registered users") != null or lower.indexOf("user count") != null then
+		score -= 10
+	end if
 
-    if lower.indexOf("port forward") != null then
-        score = score - 10
-    end if
+	if lower.indexOf("port forward") != null then
+		score -= 10
+	end if
 
-    if lower.indexOf("firewall off") != null then
-        score = score - 15
-    end if
+	if lower.indexOf("firewall off") != null then
+		score -= 15
+	end if
 
-    if score < 0 then score = 0
-    return score
+	if score < 0 then score = 0
+	return score
 end function
 
 // Scores all exploits in a metaxploit library and returns a summary map.
@@ -63,38 +63,54 @@ end function
 // @param {metaxploitLib} metax - The metaxploit library object.
 // @return {map} - {topScore, allScores:[{mem, value, score}]}
 scoreLib = function(metaLib, metax)
-    summary = {"topScore": 0, "allScores": []}
-    mems = metax.scan(metaLib)
-    if not mems or mems == [] then return summary
+	summary = {
+		"topScore": 0,
+		"allScores": [],
+	}
+	mems = metax.scan(metaLib)
+	if not mems or mems == [] then return summary
 
-    for mem in mems
-        raw = metax.scan_address(metaLib, mem)
-        if raw == null then continue
-        results = raw.split("Unsafe check: ")[1:]
-        for res in results
-            value = res[res.indexOf("<b>")+3:res.indexOf("</b>")]
-            record = g.func.getExploitRecord(metaLib.lib_name, metaLib.version, mem, value)
-            record.extraArg = g.func.classifyExtraArg(res)
-            parsedReqs = g.func.parseScanAddress(res)
-            g.func.mergeRequirements(record.requirements, parsedReqs)
-            if parsedReqs.unknown != null and parsedReqs.unknown isa list then
-                for unk in parsedReqs.unknown
-                    g.func.addUnhandledRequirement(unk)
-                end for
-            end if
-            g.func.setExploitRecord(metaLib.lib_name, metaLib.version, mem, value, record)
-            sc = null
-            if record.tested == 1 then sc = g.func.scoreExploitRecord(record)
-            if sc == null then sc = scoreScanResult(res)
-            entry = {"mem": mem, "value": value, "score": sc}
-            summary.allScores.push(entry)
-            if sc > summary.topScore then summary.topScore = sc
-        end for
-    end for
+	for mem in mems
+		raw = metax.scan_address(metaLib, mem)
+		if raw == null then continue
+		results = raw.split("Unsafe check: ")[1 : ]
+		for res in results
+			value = res[res.indexOf("<b>") + 3 : res.indexOf("</b>")]
+			record = g.func.getExploitRecord(
+				metaLib.lib_name,
+				metaLib.version,
+				mem,
+				value)
+			record.extraArg = g.func.classifyExtraArg(res)
+			parsedReqs = g.func.parseScanAddress(res)
+			g.func.mergeRequirements record.requirements, parsedReqs
+			if parsedReqs.unknown != null and parsedReqs.unknown isa list then
+				for unk in parsedReqs.unknown
+					g.func.addUnhandledRequirement unk
+				end for
+			end if
+			g.func.setExploitRecord(
+				metaLib.lib_name,
+				metaLib.version,
+				mem,
+				value,
+				record)
+			sc = null
+			if record.tested == 1 then sc = g.func.scoreExploitRecord(record)
+			if sc == null then sc = scoreScanResult(res)
+			entry = {
+				"mem": mem,
+				"value": value,
+				"score": sc,
+			}
+			summary.allScores.push entry
+			if sc > summary.topScore then summary.topScore = sc
+		end for
+	end for
 
-    g.func.reportUnhandledRequirements
+	g.func.reportUnhandledRequirements
 
-    return summary
+	return summary
 end function
 
 // Reconstructs a score summary from g.database cache without issuing any metaxploit calls.
@@ -104,38 +120,45 @@ end function
 // @param {string} ver - The library version string.
 // @return {map|null} - {topScore, allScores:[{mem, value, score}]} or null if cache incomplete.
 scoreLibFromCache = function(libName, ver)
-    if not g.database.hasIndex(libName) then return null
-    if not g.database[libName].hasIndex(ver) then return null
+	if not g.database.hasIndex(libName) then return null
+	if not g.database[libName].hasIndex(ver) then return null
 
-    mems = g.database[libName][ver].indexes
-    if not mems or mems.len == 0 then return null
+	mems = g.database[libName][ver].indexes
+	if not mems or mems.len == 0 then return null
 
-    summary = {"topScore": 0, "allScores": []}
+	summary = {
+		"topScore": 0,
+		"allScores": [],
+	}
 
-    for mem in mems
-        values = g.database[libName][ver][mem].indexes
-        if not values or values.len == 0 then return null
+	for mem in mems
+		values = g.database[libName][ver][mem].indexes
+		if not values or values.len == 0 then return null
 
-        for value in values
-            res = g.database[libName][ver][mem][value]
-            sc = null
-            if typeof(res) == "map" and res.hasIndex("tested") and res.tested == 1 then
-                sc = g.func.scoreExploitRecord(res)
-            else if typeof(res) == "string" and res != "" then
-                sc = scoreScanResult(res)
-            else if typeof(res) == "map" and res.hasIndex("extraArg") and res.extraArg != null then
-                // Seeded but untested; no scan text available, so score 0.
-                sc = 0
-            else
-                return null
-            end if
-            entry = {"mem": mem, "value": value, "score": sc}
-            summary.allScores.push(entry)
-            if sc > summary.topScore then summary.topScore = sc
-        end for
-    end for
+		for value in values
+			res = g.database[libName][ver][mem][value]
+			sc = null
+			if typeof(res) == "map" and res.hasIndex("tested") and res.tested == 1 then
+				sc = g.func.scoreExploitRecord(res)
+			else if typeof(res) == "string" and res != "" then
+				sc = scoreScanResult(res)
+			else if typeof(res) == "map" and res.hasIndex("extraArg") and res.extraArg != null then
+				// Seeded but untested; no scan text available, so score 0.
+				sc = 0
+			else
+				return null
+			end if
+			entry = {
+				"mem": mem,
+				"value": value,
+				"score": sc,
+			}
+			summary.allScores.push entry
+			if sc > summary.topScore then summary.topScore = sc
+		end for
+	end for
 
-    return summary
+	return summary
 end function
 
 // Aggregates requirements for a lib/version from the exploit DB.
@@ -143,20 +166,24 @@ end function
 // @param {string} ver - Library version.
 // @return {map} - A merged requirements map.
 getArchiveRequirements = function(libName, ver)
-    reqs = g.func.newExploitRequirements
-    if not g.database.hasIndex(libName) then return reqs
-    if not g.database[libName].hasIndex(ver) then return reqs
+	reqs = g.func.newExploitRequirements
+	if not g.database.hasIndex(libName) then return reqs
+	if not g.database[libName].hasIndex(ver) then return reqs
 
-    mems = g.database[libName][ver].indexes
-    for mem in mems
-        values = g.database[libName][ver][mem].indexes
-        for value in values
-            record = g.func.getExploitRecord(libName, ver, mem, value)
-            g.func.mergeRequirements(reqs, record.requirements)
-        end for
-    end for
+	mems = g.database[libName][ver].indexes
+	for mem in mems
+		values = g.database[libName][ver][mem].indexes
+		for value in values
+			record = g.func.getExploitRecord(
+				libName,
+				ver,
+				mem,
+				value)
+			g.func.mergeRequirements reqs, record.requirements
+		end for
+	end for
 
-    return reqs
+	return reqs
 end function
 
 // **shinylibs scan:**
@@ -167,452 +194,548 @@ end function
 // @param {number} force - If 1, rescan even if already archived or staged.
 // @return {none}
 shinylibsScan = function(scanPath = "/lib", force = 0)
-    idx = g.context.index
-    if not g.func.checkShell(idx) then return
-    if not g.func.checkMetax(idx) then
-        if not g.func.attach_metax(idx) then return
-    end if
+	idx = g.context.index
+	if not g.func.checkShell(idx) then return 
+	if not g.func.checkMetax(idx) then
+		if not g.func.attach_metax(idx) then return 
+	end if
 
-    context = g.stack[idx]
-    metax = context.metax
+	context = g.stack[idx]
+	metax = context.metax
 
-    libsDir = context.computer.File(scanPath)
-    if not libsDir then
-        print g.error("shinylibs scan: " + scanPath + " not found on current context.")
-        return
-    end if
+	libsDir = context.computer.File(scanPath)
+	if not libsDir then
+		print g.error("shinylibs scan: " + scanPath + " not found on current context.")
+		return 
+	end if
 
-    if not libsDir.is_folder then
-        print g.error("shinylibs scan: " + scanPath + " is not a directory.")
-        return
-    end if
+	if not libsDir.is_folder then
+		print g.error("shinylibs scan: " + scanPath + " is not a directory.")
+		return 
+	end if
 
-    archive = g.func.loadShinylibsDb
+	archive = g.func.loadShinylibsDb
 
-    staged = 0
-    total = 0
+	staged = 0
+	total = 0
 
-    for f in libsDir.get_files
-        if f.name[-3:] != ".so" then continue
-        total = total + 1
+	for f in libsDir.get_files
+		if f.name[-3 : ] != ".so" then continue
+		total += 1
 
-        metaLib = metax.load(f.path)
-        if not metaLib then continue
+		metaLib = metax.load(f.path)
+		if not metaLib then continue
 
-        libName = metaLib.lib_name
-        ver = metaLib.version
-        archiveKey = libName + "/" + ver
+		libName = metaLib.lib_name
+		ver = metaLib.version
+		archiveKey = libName + "/" + ver
 
-        if not force then
-            // Skip lib/version pairs already collected or already staged
-            if archive.records.hasIndex(archiveKey) then
-                print g.const.indent + g.d1("  " + libName + " v" + ver + " — already in archive, skipping.")
-                continue
-            end if
+		if not force then
+			// Skip lib/version pairs already collected or already staged
+			if archive.records.hasIndex(archiveKey) then
+				print g.const.indent + g.d1("  " + libName + " v" + ver + " — already in archive, skipping.")
+				continue
+			end if
 
-            alreadyStaged = 0
-            for entry in archive.staged
-                if entry.libName == libName and entry.version == ver then
-                    alreadyStaged = 1
-                    break
-                end if
-            end for
-            if alreadyStaged then
-                print g.const.indent + g.d1("  " + libName + " v" + ver + " — already staged, skipping.")
-                continue
-            end if
-        else
-            // Remove any existing archive record so the rescan replaces it on the next get.
-            if archive.records.hasIndex(archiveKey) then
-                archive.records.remove(archiveKey)
-                print g.const.indent + g.y1("  " + libName + " v" + ver + " — removed existing archive record for rescan.")
-            end if
+			alreadyStaged = 0
+			for entry in archive.staged
+				if entry.libName == libName and entry.version == ver then
+					alreadyStaged = 1
+					break
+				end if
+			end for
+			if alreadyStaged then
+				print g.const.indent + g.d1("  " + libName + " v" + ver + " — already staged, skipping.")
+				continue
+			end if
+		else
+			// Remove any existing archive record so the rescan replaces it on the next get.
+			if archive.records.hasIndex(archiveKey) then
+				archive.records.remove archiveKey
+				print g.const.indent + g.y1("  " + libName + " v" + ver + " — removed existing archive record for rescan.")
+			end if
 
-            // Remove any existing staged entry to avoid duplicates.
-            i = archive.staged.len - 1
-            while i >= 0
-                entry = archive.staged[i]
-                if entry.libName == libName and entry.version == ver then
-                    archive.staged.remove(i)
-                end if
-                i = i - 1
-            end while
-        end if
+			// Remove any existing staged entry to avoid duplicates.
+			i = archive.staged.len - 1
+			while i >= 0
+				entry = archive.staged[i]
+				if entry.libName == libName and entry.version == ver then
+					archive.staged.remove i
+				end if
+				i -= 1
+			end while
+		end if
 
-        // When forcing, always rescan; otherwise try cache first.
-        if force == 1 then
-            print g.const.indent + g.s3("Rescanning " + libName + " v" + ver + " (force)...")
-            summary = scoreLib(metaLib, metax)
-        else
-            summary = scoreLibFromCache(libName, ver)
-            if summary != null then
-                print g.const.indent + g.s3("Scoring " + libName + " v" + ver + " (from cache)...")
-            else
-                print g.const.indent + g.s3("Scoring " + libName + " v" + ver + "...")
-                summary = scoreLib(metaLib, metax)
-            end if
-        end if
-        topScore = summary.topScore
+		// When forcing, always rescan; otherwise try cache first.
+		if force == 1 then
+			print g.const.indent + g.s3("Rescanning " + libName + " v" + ver + " (force)...")
+			summary = scoreLib(metaLib, metax)
+		else
+			summary = scoreLibFromCache(libName, ver)
+			if summary != null then
+				print g.const.indent + g.s3("Scoring " + libName + " v" + ver + " (from cache)...")
+			else
+				print g.const.indent + g.s3("Scoring " + libName + " v" + ver + "...")
+				summary = scoreLib(metaLib, metax)
+			end if
+		end if
+		topScore = summary.topScore
 
-        // Determine whether this is the best offensive or most defensive candidate
-        bestOffScore = -1
-        bestDefScore = 999999
+		// Determine whether this is the best offensive or most defensive candidate
+		bestOffScore = -1
+		bestDefScore = 999999
 
-        for key in archive.records.indexes
-            parts = key.split("/")
-            if parts.len < 2 then continue
-            rLibName = parts[0]
-            if rLibName != libName then continue
-            rec = archive.records[key]
-            if rec.topScore > bestOffScore then bestOffScore = rec.topScore
-            if rec.topScore < bestDefScore then bestDefScore = rec.topScore
-        end for
+		for key in archive.records.indexes
+			parts = key.split("/")
+			if parts.len < 2 then continue
+			rLibName = parts[0]
+			if rLibName != libName then continue
+			rec = archive.records[key]
+			if rec.topScore > bestOffScore then bestOffScore = rec.topScore
+			if rec.topScore < bestDefScore then bestDefScore = rec.topScore
+		end for
 
-        // Also check staged entries
-        for entry in archive.staged
-            if entry.libName != libName then continue
-            if entry.topScore > bestOffScore then bestOffScore = entry.topScore
-            if entry.topScore < bestDefScore then bestDefScore = entry.topScore
-        end for
+		// Also check staged entries
+		for entry in archive.staged
+			if entry.libName != libName then continue
+			if entry.topScore > bestOffScore then bestOffScore = entry.topScore
+			if entry.topScore < bestDefScore then bestDefScore = entry.topScore
+		end for
 
-        isOffensive = topScore > bestOffScore
-        isDefensive = topScore == 0 and bestDefScore > 0
+		isOffensive = topScore > bestOffScore
+		isDefensive = topScore == 0 and bestDefScore > 0
 
-        stageEntry = {
-            "libName": libName,
-            "version": ver,
-            "path": f.path,
-            "topScore": topScore,
-            "allScores": summary.allScores,
-            "isOffensive": isOffensive,
-            "isDefensive": isDefensive,
-            "conditions": null
-        }
-        archive.staged.push(stageEntry)
-        staged = staged + 1
-        tag = ""
-        if isOffensive then tag = tag + g.r1("[offensive]") + " "
-        if isDefensive then tag = tag + g.g1("[defensive]") + " "
-        print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (score=" + topScore + ") " + tag)
-    end for
+		stageEntry = {
+			"libName": libName,
+			"version": ver,
+			"path": f.path,
+			"topScore": topScore,
+			"allScores": summary.allScores,
+			"isOffensive": isOffensive,
+			"isDefensive": isDefensive,
+			"conditions": null,
+		}
+		archive.staged.push stageEntry
+		staged += 1
+		tag = ""
+		if isOffensive then tag = tag + g.r1("[offensive]") + " "
+		if isDefensive then tag = tag + g.g1("[defensive]") + " "
+		print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (score=" + topScore + ") " + tag)
+	end for
 
-    g.func.saveShinylibsDb(archive)
+	g.func.saveShinylibsDb archive
 
-    print g.const.nl + g.const.indent + g.s2("Scanned " + total + " libraries, staged " + staged + " entries.")
-    print g.const.indent + g.l2("Run 'shinylibs get' to copy staged libs to your archive.")
+	print g.const.indent + g.s2("Scanned " + total + " libraries, staged " + staged + " entries.")
+	if staged > 0 then
+		print g.const.indent + g.l2("Auto-running 'shinylibs get'...")
+		shinylibsGet
+	end if
 end function
 
 // **shinylibs req-patterns:**
 // Dumps every unique requirement bullet pattern seen by the scanner and whether
 // the parser currently recognizes it.
 // @return {none}
-shinylibsReqPatterns = function()
-    if not g.hasIndex("requirementPatterns") then g.requirementPatterns = []
-    if not (g.requirementPatterns isa list) then g.requirementPatterns = []
+shinylibsReqPatterns = function
+	if not g.hasIndex("requirementPatterns") then g.requirementPatterns = []
+	if not (g.requirementPatterns isa list) then g.requirementPatterns = []
 
-    print g.const.nl + g.func.heading("Requirement Patterns")
+	print g.const.nl + g.func.heading("Requirement Patterns")
 
-    if g.requirementPatterns.len == 0 then
-        print g.const.indent + g.d1("No requirement patterns recorded. Run 'shinylibs scan' first.")
-        print ""
-        return
-    end if
+	if g.requirementPatterns.len == 0 then
+		print g.const.indent + g.d1("No requirement patterns recorded. Run 'shinylibs scan' first.")
+		print ""
+		return 
+	end if
 
-    handledCount = 0
-    unhandledCount = 0
-    for entry in g.requirementPatterns
-        if entry.hasIndex("handled") and entry.handled == 1 then
-            handledCount = handledCount + 1
-        else
-            unhandledCount = unhandledCount + 1
-        end if
-    end for
+	handledCount = 0
+	unhandledCount = 0
+	for entry in g.requirementPatterns
+		if entry.hasIndex("handled") and entry.handled == 1 then
+			handledCount += 1
+		else
+			unhandledCount += 1
+		end if
+	end for
 
-    print g.const.indent + g.s2("Total: " + g.requirementPatterns.len + "  " + g.g1("handled: " + handledCount) + "  " + g.r1("unhandled: " + unhandledCount))
+	print g.const.indent + g.s2("Total: " + g.requirementPatterns.len + "  " + g.g1("handled: " + handledCount) + "  " + g.r1("unhandled: " + unhandledCount))
 
-    // List unhandled patterns first.
-    for entry in g.requirementPatterns
-        if entry.hasIndex("handled") and entry.handled == 1 then continue
-        line = entry.hasIndex("line") and entry.line or ""
-        print g.const.indent + g.r1("[unhandled]") + " " + g.l2(line)
-    end for
+	// List unhandled patterns first.
+	for entry in g.requirementPatterns
+		if entry.hasIndex("handled") and entry.handled == 1 then continue
+		line = entry.hasIndex("line") and entry.line or ""
+		print g.const.indent + g.r1("[unhandled]") + " " + g.l2(line)
+	end for
 
-    for entry in g.requirementPatterns
-        if not (entry.hasIndex("handled") and entry.handled == 1) then continue
-        line = entry.hasIndex("line") and entry.line or ""
-        print g.const.indent + g.g1("[handled]") + "   " + g.l2(line)
-    end for
+	for entry in g.requirementPatterns
+		if not (entry.hasIndex("handled") and entry.handled == 1) then continue
+		line = entry.hasIndex("line") and entry.line or ""
+		print g.const.indent + g.g1("[handled]") + "   " + g.l2(line)
+	end for
 
-    print ""
+	print ""
 end function
 
 // **shinylibs list:**
 // Displays all known library versions from the exploit DB and archive, marking any
 // version whose binary is missing from the home shinylibs directory in bold.
 // @return {none}
-shinylibsList = function()
-    archive = g.func.loadShinylibsDb
-    home = g.stack["0"]
+shinylibsList = function
+	archive = g.func.loadShinylibsDb
+	home = g.stack["0"]
 
-    print g.const.nl + g.func.heading("ShinyLibs Archive")
+	print g.const.nl + g.func.heading("ShinyLibs Archive")
 
-    // Index archived records by libName -> version -> record.
-    archivedVersions = {}
-    for key in archive.records.indexes
-        parts = key.split("/")
-        if parts.len < 2 then continue
-        libName = parts[0]
-        ver = parts[1]
-        if not archivedVersions.hasIndex(libName) then archivedVersions[libName] = {}
-        archivedVersions[libName][ver] = archive.records[key]
-    end for
+	// Index archived records by libName -> version -> record.
+	archivedVersions = {}
+	for key in archive.records.indexes
+		parts = key.split("/")
+		if parts.len < 2 then continue
+		libName = parts[0]
+		ver = parts[1]
+		if not archivedVersions.hasIndex(libName) then archivedVersions[libName] = {}
+		archivedVersions[libName][ver] = archive.records[key]
+	end for
 
-    // Index staged entries by libName -> version -> entry.
-    stagedVersions = {}
-    for entry in archive.staged
-        if not stagedVersions.hasIndex(entry.libName) then stagedVersions[entry.libName] = {}
-        stagedVersions[entry.libName][entry.version] = entry
-    end for
+	// Index staged entries by libName -> version -> entry.
+	stagedVersions = {}
+	for entry in archive.staged
+		if not stagedVersions.hasIndex(entry.libName) then stagedVersions[entry.libName] = {}
+		stagedVersions[entry.libName][entry.version] = entry
+	end for
 
-    // Gather every library known to the database or the archive.
-    allLibs = {}
-    for libName in g.database.indexes
-        if libName.len >= 2 and libName[:2] == "__" then continue
-        if not (g.database[libName] isa map) then continue
-        allLibs[libName] = 1
-    end for
-    for libName in archivedVersions.indexes
-        allLibs[libName] = 1
-    end for
+	// Gather every library known to the database or the archive.
+	allLibs = {}
+	for libName in g.database.indexes
+		if libName.len >= 2 and libName[ : 2] == "__" then continue
+		if not (g.database[libName] isa map) then continue
+		allLibs[libName] = 1
+	end for
+	for libName in archivedVersions.indexes
+		allLibs[libName] = 1
+	end for
 
-    if allLibs.len == 0 and archive.staged.len == 0 then
-        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' on a target.")
-        return
-    end if
+	if allLibs.len == 0 and archive.staged.len == 0 then
+		print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' on a target.")
+		return 
+	end if
 
-    libNames = allLibs.indexes
-    libNames.sort
+	libNames = allLibs.indexes
+	libNames.sort
 
-    for libName in libNames
-        isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(libName) != null
-        remoteTag = ""
-        if isRemote then remoteTag = g.y1(" [remote-access]")
-        print g.const.indent + g.s2(libName) + remoteTag
+	for libName in libNames
+		isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(libName) != null
+		remoteTag = ""
+		if isRemote then remoteTag = g.y1(" [remote-access]")
+		print g.const.indent + g.s2(libName) + remoteTag
 
-        // Collect every known version for this library.
-        versions = {}
-        if g.database.hasIndex(libName) and g.database[libName] isa map then
-            for ver in g.database[libName].indexes
-                versions[ver] = 1
-            end for
-        end if
-        if archivedVersions.hasIndex(libName) then
-            for ver in archivedVersions[libName].indexes
-                versions[ver] = 1
-            end for
-        end if
-        versionList = versions.indexes
-        versionList.sort
+		// Collect every known version for this library.
+		versions = {}
+		if g.database.hasIndex(libName) and g.database[libName] isa map then
+			for ver in g.database[libName].indexes
+				versions[ver] = 1
+			end for
+		end if
+		if archivedVersions.hasIndex(libName) then
+			for ver in archivedVersions[libName].indexes
+				versions[ver] = 1
+			end for
+		end if
+		versionList = versions.indexes
+		versionList.sort
 
-        bestOffRec = null
-        bestDefRec = null
+		bestOffRec = null
+		bestDefRec = null
 
-        for ver in versionList
-            expectedPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + ver + "/" + libName
-            hasBinary = home.computer.File(expectedPath) != null
+		for ver in versionList
+			expectedPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + ver + "/" + libName
+			hasBinary = home.computer.File(expectedPath) != null
 
-            rec = null
-            if archivedVersions.hasIndex(libName) and archivedVersions[libName].hasIndex(ver) then
-                rec = archivedVersions[libName][ver]
-            end if
+			rec = null
+			if archivedVersions.hasIndex(libName) and archivedVersions[libName].hasIndex(ver) then
+				rec = archivedVersions[libName][ver]
+			end if
 
-            if rec != null then
-                if bestOffRec == null or rec.topScore > bestOffRec.topScore then bestOffRec = rec
-                if bestDefRec == null or rec.topScore < bestDefRec.topScore then bestDefRec = rec
-            end if
+			if rec != null then
+				if bestOffRec == null or rec.topScore > bestOffRec.topScore then bestOffRec = rec
+				if bestDefRec == null or rec.topScore < bestDefRec.topScore then bestDefRec = rec
+			end if
 
-            versionLabel = "v" + ver
-            if not hasBinary then versionLabel = g.func.format(versionLabel, ["b"])
+			versionLabel = "v" + ver
+			if not hasBinary then versionLabel = g.func.format(versionLabel, [ "b" ])
 
-            tags = []
-            if rec != null then tags.push("archived")
-            if stagedVersions.hasIndex(libName) and stagedVersions[libName].hasIndex(ver) then tags.push("staged")
+			tags = []
+			if rec != null then tags.push("archived")
+			if stagedVersions.hasIndex(libName) and stagedVersions[libName].hasIndex(ver) then tags.push("staged")
 
-            topScore = "?"
-            if rec != null then
-                topScore = rec.topScore
-            else
-                cached = scoreLibFromCache(libName, ver)
-                if cached != null then topScore = cached.topScore
-            end if
+			topScore = "?"
+			if rec != null then
+				topScore = rec.topScore
+			else
+				cached = scoreLibFromCache(libName, ver)
+				if cached != null then topScore = cached.topScore
+			end if
 
-            line = g.const.indent + "  " + versionLabel
-            if tags.len > 0 then line = line + " (" + tags.join(", ") + ")"
-            line = line + g.const.tab + "score=" + topScore
-            print line
-        end for
+			line = g.const.indent + "  " + versionLabel
+			if tags.len > 0 then line = line + " (" + tags.join(", ") + ")"
+			line = line + g.const.tab + "score=" + topScore
+			print line
+		end for
 
-        if bestOffRec != null then
-            print g.const.indent + "  " + g.r1("Best offensive:") + " v" + bestOffRec.version + g.const.tab + "score=" + bestOffRec.topScore
-            if bestOffRec.hasIndex("requirements") and bestOffRec.requirements != null then
-                reqText = g.func.formatRequirements(bestOffRec.requirements)
-                if reqText != "" then print g.const.indent + "      " + g.d1("[" + reqText + "]")
-            end if
-        end if
+		if bestOffRec != null then
+			print g.const.indent + "  " + g.r1("Best offensive:") + " v" + bestOffRec.version + g.const.tab + "score=" + bestOffRec.topScore
+			if bestOffRec.hasIndex("requirements") and bestOffRec.requirements != null then
+				reqText = g.func.formatRequirements(bestOffRec.requirements)
+				if reqText != "" then print g.const.indent + "      " + g.d1("[" + reqText + "]")
+			end if
+		end if
 
-        if bestDefRec != null and bestDefRec.topScore == 0 then
-            print g.const.indent + "  " + g.g1("Most defensive:") + " v" + bestDefRec.version + g.const.tab + "score=0"
-            if bestDefRec.hasIndex("requirements") and bestDefRec.requirements != null then
-                reqText = g.func.formatRequirements(bestDefRec.requirements)
-                if reqText != "" then print g.const.indent + "      " + g.d1("[" + reqText + "]")
-            end if
-        end if
-    end for
+		if bestDefRec != null and bestDefRec.topScore == 0 then
+			print g.const.indent + "  " + g.g1("Most defensive:") + " v" + bestDefRec.version + g.const.tab + "score=0"
+			if bestDefRec.hasIndex("requirements") and bestDefRec.requirements != null then
+				reqText = g.func.formatRequirements(bestDefRec.requirements)
+				if reqText != "" then print g.const.indent + "      " + g.d1("[" + reqText + "]")
+			end if
+		end if
+	end for
 
-    if archive.staged.len > 0 then
-        print g.const.nl + g.const.indent + g.s3("Staged (awaiting 'shinylibs get'):")
-        for entry in archive.staged
-            isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(entry.libName) != null
-            remoteTag = ""
-            if isRemote then remoteTag = g.y1(" [remote-access]")
-            tag = ""
-            if entry.isOffensive then tag = tag + g.r1("[off]") + " "
-            if entry.isDefensive then tag = tag + g.g1("[def]") + " "
-            print g.const.indent + "  " + g.l2(entry.libName + " v" + entry.version) + " score=" + entry.topScore + " " + tag + remoteTag
-        end for
-    end if
+	if archive.staged.len > 0 then
+		print g.const.nl + g.const.indent + g.s3("Staged (awaiting 'shinylibs get'):")
+		for entry in archive.staged
+			isRemote = g.const.SHINYLIBS_REMOTE_LIBS.indexOf(entry.libName) != null
+			remoteTag = ""
+			if isRemote then remoteTag = g.y1(" [remote-access]")
+			tag = ""
+			if entry.isOffensive then tag = tag + g.r1("[off]") + " "
+			if entry.isDefensive then tag = tag + g.g1("[def]") + " "
+			print g.const.indent + "  " + g.l2(entry.libName + " v" + entry.version) + " score=" + entry.topScore + " " + tag + remoteTag
+		end for
+	end if
 
-    // Most useful exploits: best unrestricted/easiest restricted per handle type.
-    byType = g.func.getBestExploitsByType
-    if byType.len > 0 then
-        print g.const.nl + g.func.heading("Most Useful Exploits")
+	// Most useful exploits: best unrestricted/easiest restricted per handle type.
+	byType = g.func.getBestExploitsByType
+	if byType.len > 0 then
+		print g.const.nl + g.func.heading("Most Useful Exploits")
 
-        typeOrder = ["shell", "computer", "file", "passwordReset", "firewall", "settings", "trafficLight", "number"]
-        typeLabels = {"shell": "Shell", "computer": "Computer", "file": "File", "passwordReset": "Password Reset", "firewall": "Firewall", "settings": "Settings", "trafficLight": "Traffic Light", "number": "Number"}
+		typeOrder = [
+			"shell",
+			"computer",
+			"file",
+			"passwordReset",
+			"firewall",
+			"settings",
+			"trafficLight",
+			"number",
+		]
+		typeLabels = {
+			"shell": "Shell",
+			"computer": "Computer",
+			"file": "File",
+			"passwordReset": "Password Reset",
+			"firewall": "Firewall",
+			"settings": "Settings",
+			"trafficLight": "Traffic Light",
+			"number": "Number",
+		}
 
-        orderUsers = function(users)
-            ordered = []
-            for u in users
-                if u == "root" then ordered.push(u)
-            end for
-            for u in users
-                if u == "guest" then ordered.push(u)
-            end for
-            for u in users
-                if u != "root" and u != "guest" then ordered.push(u)
-            end for
-            return ordered
-        end function
+		orderUsers = function(users)
+			ordered = []
+			for u in users
+				if u == "root" then ordered.push(u)
+			end for
+			for u in users
+				if u == "guest" then ordered.push(u)
+			end for
+			for u in users
+				if u != "root" and u != "guest" then ordered.push(u)
+			end for
+			return ordered
+		end function
 
-        for typeKey in typeOrder
-            if not byType.hasIndex(typeKey) then continue
-            bucket = byType[typeKey]
+		for typeKey in typeOrder
+			if not byType.hasIndex(typeKey) then continue
+			bucket = byType[typeKey]
 
-            label = typeKey
-            if typeLabels.hasIndex(typeKey) then label = typeLabels[typeKey]
-            print g.const.indent + g.s2(label)
+			label = typeKey
+			if typeLabels.hasIndex(typeKey) then label = typeLabels[typeKey]
+			print g.const.indent + g.s2(label)
 
-            if bucket.unrestricted.len > 0 then
-                users = orderUsers(bucket.unrestricted.indexes)
-                for user in users
-                    entry = bucket.unrestricted[user]
-                    line = g.const.indent + "  " + g.g1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
-                    print line
-                end for
-            else if bucket.restricted.len > 0 then
-                print g.const.indent + "  " + g.y1("No unrestricted exploits; easiest restrictions:")
-                users = orderUsers(bucket.restricted.indexes)
-                for user in users
-                    entry = bucket.restricted[user]
-                    line = g.const.indent + "    " + g.y1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
-                    if entry.reqText != "" then line = line + "  [" + entry.reqText + "]"
-                    print line
-                end for
-            else
-                print g.const.indent + "  " + g.d1("No tested exploits recorded.")
-            end if
-        end for
-    end if
+			if bucket.unrestricted.len > 0 then
+				users = orderUsers(bucket.unrestricted.indexes)
+				for user in users
+					entry = bucket.unrestricted[user]
+					line = g.const.indent + "  " + g.g1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
+					print line
+				end for
+			else if bucket.restricted.len > 0 then
+				print g.const.indent + "  " + g.y1("No unrestricted exploits; easiest restrictions:")
+				users = orderUsers(bucket.restricted.indexes)
+				for user in users
+					entry = bucket.restricted[user]
+					line = g.const.indent + "    " + g.y1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
+					if entry.reqText != "" then line = line + "  [" + entry.reqText + "]"
+					print line
+				end for
+			else
+				print g.const.indent + "  " + g.d1("No tested exploits recorded.")
+			end if
+		end for
+	end if
 
-    if g.hasIndex("unhandledRequirements") and g.unhandledRequirements isa list and g.unhandledRequirements.len > 0 then
-        print g.const.nl + g.func.heading("Unhandled Requirement Patterns")
-        for line in g.unhandledRequirements
-            print g.const.indent + g.d1(line)
-        end for
-    end if
+	if g.hasIndex("unhandledRequirements") and g.unhandledRequirements isa list and g.unhandledRequirements.len > 0 then
+		print g.const.nl + g.func.heading("Unhandled Requirement Patterns")
+		for line in g.unhandledRequirements
+			print g.const.indent + g.d1(line)
+		end for
+	end if
 
-    print ""
+	print ""
+end function
+
+// **shinylibs auto-stage:**
+// Scans /lib on the current context and stages every .so that is not already archived
+// or staged. Used as a fallback when 'shinylibs get' is run without a prior scan.
+// Libraries are staged without exploit scores so they can still be copied to the home
+// archive.
+// @return {number} - 1 if staging completed, 0 on error.
+shinylibsAutoStage = function
+	idx = g.context.index
+	if not g.func.checkShell(idx) then return 0
+	if not g.func.checkMetax(idx) then
+		if not g.func.attach_metax(idx) then return 0
+	end if
+
+	context = g.stack[idx]
+	metax = context.metax
+
+	libsDir = context.computer.File("/lib")
+	if not libsDir then
+		print g.error("shinylibs get: /lib not found on current context.")
+		return 0
+	end if
+
+	archive = g.func.loadShinylibsDb
+	staged = 0
+
+	for f in libsDir.get_files
+		if f.name[-3 : ] != ".so" then continue
+
+		metaLib = metax.load(f.path)
+		if not metaLib then continue
+
+		libName = metaLib.lib_name
+		ver = metaLib.version
+		archiveKey = libName + "/" + ver
+
+		if archive.records.hasIndex(archiveKey) then continue
+
+		alreadyStaged = 0
+		for entry in archive.staged
+			if entry.libName == libName and entry.version == ver then
+				alreadyStaged = 1
+				break
+			end if
+		end for
+		if alreadyStaged then continue
+
+		stageEntry = {
+			"libName": libName,
+			"version": ver,
+			"path": f.path,
+			"topScore": 0,
+			"allScores": [],
+			"isOffensive": 0,
+			"isDefensive": 0,
+			"conditions": null,
+		}
+		archive.staged.push stageEntry
+		staged += 1
+		print g.const.indent + g.g2("  Staged " + libName + " v" + ver + " (unscanned)")
+	end for
+
+	g.func.saveShinylibsDb archive
+	print g.const.indent + g.s2("Auto-staged " + staged + " unscanned librar" + (staged == 1 and "y" or "ies") + " from /lib.")
+	return 1
 end function
 
 // **shinylibs get:**
 // Copies all staged libraries from the current context to the home archive automatically.
 // On transfer failure the entry remains staged so it can be retried.
 // @return {none}
-shinylibsGet = function()
-    archive = g.func.loadShinylibsDb
+shinylibsGet = function
+	archive = g.func.loadShinylibsDb
 
-    if archive.staged.len == 0 then
-        print g.const.indent + g.d1("Nothing is staged.  Run 'shinylibs scan [path]' on a target first.")
-        return
-    end if
+	if archive.staged.len == 0 then
+		print g.const.indent + g.y1("Nothing is staged. Auto-staging libraries from /lib...")
+		if not shinylibsAutoStage then return 
+		archive = g.func.loadShinylibsDb
+		if archive.staged.len == 0 then
+			print g.const.indent + g.d1("No libraries available to copy.")
+			return 
+		end if
+	end if
 
-    idx = g.context.index
-    if not g.func.checkShell(idx) then return
-    context = g.stack[idx]
-    home = g.stack["0"]
+	idx = g.context.index
+	if not g.func.checkShell(idx) then return 
+	context = g.stack[idx]
+	home = g.stack["0"]
 
-    collected = []
-    total = archive.staged.len
+	collected = []
+	total = archive.staged.len
 
-    for i in range(0, total - 1)
-        entry = archive.staged[i]
-        tag = ""
-        if entry.isOffensive then tag = tag + " [offensive]"
-        if entry.isDefensive then tag = tag + " [defensive]"
-        print g.const.indent + g.s3("Collecting " + entry.libName + " v" + entry.version + tag + " (score=" + entry.topScore + ")...")
+	for i in range(0, total - 1)
+		entry = archive.staged[i]
+		tag = ""
+		if entry.isOffensive then tag += " [offensive]"
+		if entry.isDefensive then tag += " [defensive]"
+		print g.const.indent + g.s3("Collecting " + entry.libName + " v" + entry.version + tag + " (score=" + entry.topScore + ")...")
 
-        destDir = g.const.SHINYLIBS_BIN_PATH + "/" + entry.libName + "/" + entry.version
-        if not g.func.ensureShinylibsDir(destDir) then
-            print g.error("shinylibs get: could not create directory " + destDir + ". Entry remains staged.")
-            continue
-        end if
+		destDir = g.const.SHINYLIBS_BIN_PATH + "/" + entry.libName + "/" + entry.version
+		if not g.func.ensureShinylibsDir(destDir) then
+			print g.error("shinylibs get: could not create directory " + destDir + ". Entry remains staged.")
+			continue
+		end if
 
-        result = g.func.transfer(context.shell, entry.path, home.shell, destDir)
-        if not result then
-            print g.error("shinylibs get: transfer failed for " + entry.libName + " v" + entry.version + ". Entry remains staged.")
-            continue
-        end if
+		result = g.func.transfer(
+			context.shell,
+			entry.path,
+			home.shell,
+			destDir)
+		if not result then
+			print g.error("shinylibs get: transfer failed for " + entry.libName + " v" + entry.version + ". Entry remains staged.")
+			continue
+		end if
 
-        // Move from staged to records
-        archiveKey = entry.libName + "/" + entry.version
-        archiveRec = {
-            "libName": entry.libName,
-            "version": entry.version,
-            "path": destDir + "/" + entry.libName,
-            "topScore": entry.topScore,
-            "allScores": entry.allScores,
-            "isOffensive": entry.isOffensive,
-            "isDefensive": entry.isDefensive,
-            "conditions": entry.conditions,
-            "requirements": getArchiveRequirements(entry.libName, entry.version),
-            "archivedAt": time
-        }
-        archive.records[archiveKey] = archiveRec
-        collected.push(i)
-        print g.const.indent + g.g1("  -> " + destDir)
-    end for
+		// Move from staged to records
+		archiveKey = entry.libName + "/" + entry.version
+		archiveRec = {
+			"libName": entry.libName,
+			"version": entry.version,
+			"path": destDir + "/" + entry.libName,
+			"topScore": entry.topScore,
+			"allScores": entry.allScores,
+			"isOffensive": entry.isOffensive,
+			"isDefensive": entry.isDefensive,
+			"conditions": entry.conditions,
+			"requirements": getArchiveRequirements(entry.libName, entry.version),
+			"archivedAt": time,
+		}
+		archive.records[archiveKey] = archiveRec
+		collected.push i
+		print g.const.indent + g.g1("  -> " + destDir)
+	end for
 
-    // Remove collected entries from staged (iterate in reverse to preserve indices)
-    i = collected.len - 1
-    while i >= 0
-        archive.staged.remove(collected[i])
-        i = i - 1
-    end while
+	// Remove collected entries from staged (iterate in reverse to preserve indices)
+	i = collected.len - 1
+	while i >= 0
+		archive.staged.remove collected[i]
+		i -= 1
+	end while
 
-    g.func.saveShinylibsDb(archive)
+	g.func.saveShinylibsDb archive
 
-    failed = total - collected.len
-    print g.const.indent + g.s3("Collected " + collected.len + " of " + total + " staged entries." + (failed > 0 and " " + failed + " failed — retry with 'shinylibs get'." or ""))
+	failed = total - collected.len
+	print g.const.indent + g.s3("Collected " + collected.len + " of " + total + " staged entries." + (failed > 0 and " " + failed + " failed — retry with 'shinylibs get'." or ""))
 end function
 
 // **shinylibs put:**
@@ -621,154 +744,162 @@ end function
 // @param {string} mode - "vuln" or "harden"
 // @return {none}
 shinylibsPut = function(mode)
-    if mode != "vuln" and mode != "harden" then
-        print g.error("shinylibs put: invalid mode '" + mode + "'. Use 'vuln' or 'harden'.")
-        return
-    end if
+	if mode != "vuln" and mode != "harden" then
+		print g.error("shinylibs put: invalid mode '" + mode + "'. Use 'vuln' or 'harden'.")
+		return 
+	end if
 
-    idx = g.context.index
-    if not g.func.checkShell(idx) then return
-    context = g.stack[idx]
-    home = g.stack["0"]
+	idx = g.context.index
+	if not g.func.checkShell(idx) then return 
+	context = g.stack[idx]
+	home = g.stack["0"]
 
-    libsDir = context.computer.File("/lib")
-    if not libsDir then
-        print g.error("shinylibs put: /lib not found on current context.")
-        return
-    end if
+	libsDir = context.computer.File("/lib")
+	if not libsDir then
+		print g.error("shinylibs put: /lib not found on current context.")
+		return 
+	end if
 
-    archive = g.func.loadShinylibsDb
+	archive = g.func.loadShinylibsDb
 
-    if archive.records.len == 0 then
-        print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' and 'shinylibs get' first.")
-        return
-    end if
+	if archive.records.len == 0 then
+		print g.const.indent + g.d1("Archive is empty.  Run 'shinylibs scan [path]' and 'shinylibs get' first.")
+		return 
+	end if
 
-    // Build best-per-libname index from archive
-    bestByLib = {}
-    for key in archive.records.indexes
-        rec = archive.records[key]
-        libName = rec.libName
-        if not bestByLib.hasIndex(libName) then
-            bestByLib[libName] = rec
-        else
-            existing = bestByLib[libName]
-            if mode == "vuln" and rec.topScore > existing.topScore then
-                bestByLib[libName] = rec
-            else if mode == "harden" and rec.topScore < existing.topScore then
-                bestByLib[libName] = rec
-            end if
-        end if
-    end for
+	// Build best-per-libname index from archive
+	bestByLib = {}
+	for key in archive.records.indexes
+		rec = archive.records[key]
+		libName = rec.libName
+		if not bestByLib.hasIndex(libName) then
+			bestByLib[libName] = rec
+		else
+			existing = bestByLib[libName]
+			if mode == "vuln" and rec.topScore > existing.topScore then
+				bestByLib[libName] = rec
+			else if mode == "harden" and rec.topScore < existing.topScore then
+				bestByLib[libName] = rec
+			end if
+		end if
+	end for
 
-    metax = context.metax
-    if metax == null then
-        print g.error("shinylibs put: metaxploit not attached on current context — cannot verify library versions. Run 'jump' to attach it first.")
-        return
-    end if
+	metax = context.metax
+	if metax == null then
+		print g.error("shinylibs put: metaxploit not attached on current context — cannot verify library versions. Run 'jump' to attach it first.")
+		return 
+	end if
 
-    replaced = 0
+	replaced = 0
 
-    for f in libsDir.get_files
-        if f.name[-3:] != ".so" then continue
-        libName = f.name
+	for f in libsDir.get_files
+		if f.name[-3 : ] != ".so" then continue
+		libName = f.name
 
-        if not bestByLib.hasIndex(libName) then continue
+		if not bestByLib.hasIndex(libName) then continue
 
-        best = bestByLib[libName]
+		best = bestByLib[libName]
 
-        // Check if target already has this version
-        metaLib = metax.load(f.path)
-        if metaLib != null and metaLib.version == best.version then
-            print g.const.indent + g.d1(libName + " already at v" + best.version + ", skipping.")
-            continue
-        end if
+		// Check if target already has this version
+		metaLib = metax.load(f.path)
+		if metaLib != null and metaLib.version == best.version then
+			print g.const.indent + g.d1(libName + " already at v" + best.version + ", skipping.")
+			continue
+		end if
 
-        tag = ""
-        if mode == "vuln" then tag = " (offensive, score=" + best.topScore + ")"
-        if mode == "harden" then tag = " (defensive, score=" + best.topScore + ")"
+		tag = ""
+		if mode == "vuln" then tag = " (offensive, score=" + best.topScore + ")"
+		if mode == "harden" then tag = " (defensive, score=" + best.topScore + ")"
 
-        prompt = g.const.indent + g.l2("Replace " + libName + " with v" + best.version + tag + "? [y/N] ")
-        ans = user_input(prompt, 0, 0, 0)
-        if ans.lower != "y" then continue
+		prompt = g.const.indent + g.l2("Replace " + libName + " with v" + best.version + tag + "? [y/N] ")
+		ans = user_input(
+			prompt,
+			0,
+			0,
+			0)
+		if ans.lower != "y" then continue
 
-        srcPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + best.version + "/" + libName
+		srcPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + best.version + "/" + libName
 
-        result = g.func.transfer(home.shell, srcPath, context.shell, "/lib")
-        if not result then
-            print g.error("shinylibs put: transfer failed for " + libName)
-            continue
-        end if
+		result = g.func.transfer(
+			home.shell,
+			srcPath,
+			context.shell,
+			"/lib")
+		if not result then
+			print g.error("shinylibs put: transfer failed for " + libName)
+			continue
+		end if
 
-        // Rename to canonical libName if needed (transfer may preserve source filename)
-        destFile = context.computer.File("/lib/" + libName)
-        if not destFile then
-            print g.error("shinylibs put: transferred file not found at /lib/" + libName)
-            continue
-        end if
+		// Rename to canonical libName if needed (transfer may preserve source filename)
+		destFile = context.computer.File("/lib/" + libName)
+		if not destFile then
+			print g.error("shinylibs put: transferred file not found at /lib/" + libName)
+			continue
+		end if
 
-        replaced = replaced + 1
-        print g.const.indent + g.g1("Replaced " + libName + " with v" + best.version)
-    end for
+		replaced += 1
+		print g.const.indent + g.g1("Replaced " + libName + " with v" + best.version)
+	end for
 
-    print g.const.nl + g.const.indent + g.s3("Replaced " + replaced + " libraries.")
-    if replaced > 0 then
-        print g.const.indent + g.y1("Warning: SCP creates logs on the target.  Run 'corruptlogs' or 'log clear' to clean up.")
-    end if
+	print g.const.nl + g.const.indent + g.s3("Replaced " + replaced + " libraries.")
+	if replaced > 0 then
+		print g.const.indent + g.y1("Warning: SCP creates logs on the target.  Run 'corruptlogs' or 'log clear' to clean up.")
+	end if
 end function
 
 // Dispatcher for the shinylibs tool.
 // @param {list<string>} args - Command arguments.
 // @return {none}
 doShinylibs = function(args)
-    if not args or args == [] or args[0] == "-h" or args[0] == "help" then
-        self.help
-        return
-    end if
+	if not args or args == [] or args[0] == "-h" or args[0] == "help" then
+		self.help
+		return 
+	end if
 
-    sub = args[0]
+	sub = args[0]
 
-    if sub == "scan" then
-        scanPath = "/lib"
-        force = 0
-        if args.len > 1 then
-            for i in range(1, args.len - 1)
-                arg = args[i]
-                if arg == "force" then
-                    force = 1
-                else
-                    scanPath = arg
-                end if
-            end for
-        end if
-        shinylibsScan(scanPath, force)
-    else if sub == "list" then
-        if args.len > 1 and args[1] == "clear-unhandled" then
-            g.func.clearUnhandledRequirements
-            return
-        end if
-        shinylibsList
-    else if sub == "req-patterns" then
-        shinylibsReqPatterns
-    else if sub == "get" then
-        shinylibsGet
-    else if sub == "put" then
-        if args.len < 2 then
-            print g.error("shinylibs put: specify 'vuln' or 'harden'.")
-            self.help
-            return
-        end if
-        shinylibsPut(args[1])
-    else
-        print g.error("shinylibs: unknown subcommand '" + sub + "'.")
-        self.help
-    end if
+	if sub == "scan" then
+		scanPath = "/lib"
+		force = 0
+		if args.len > 1 then
+			for i in range(1, args.len - 1)
+				arg = args[i]
+				if arg == "force" then
+					force = 1
+				else
+					scanPath = arg
+				end if
+			end for
+		end if
+		shinylibsScan scanPath, force
+	else if sub == "list" then
+		if args.len > 1 and args[1] == "clear-unhandled" then
+			g.func.clearUnhandledRequirements
+			return 
+		end if
+		shinylibsList
+	else if sub == "req-patterns" then
+		shinylibsReqPatterns
+	else if sub == "get" then
+		shinylibsGet
+	else if sub == "put" then
+		if args.len < 2 then
+			print g.error("shinylibs put: specify 'vuln' or 'harden'.")
+			self.help
+			return 
+		end if
+		shinylibsPut args[1]
+	else
+		print g.error("shinylibs: unknown subcommand '" + sub + "'.")
+		self.help
+	end if
 end function
 
 g.tools.shinylibs = {
-    "name": "shinylibs",
-    "shortDescription": "Score, collect, and deploy library binaries.",
-    "exec": @doShinylibs,
-    "help": @shinylibsHelp,
-    "data": {}
+	"name": "shinylibs",
+	"shortDescription": "Score, collect, and deploy library binaries.",
+	"exec": @doShinylibs,
+	"help": @shinylibsHelp,
+	"data": {},
 }

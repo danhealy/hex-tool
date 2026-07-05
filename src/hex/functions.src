@@ -1508,6 +1508,11 @@ g.func.get_computers = function
     computers = []
 
     for device in devices
+        if g.func.knownMismatch(lib, ver, mem, value, "computer", null) then
+            print g.const.indent + g.d1("Skipping known non-computer result for " + mem + " with value " + value)
+            continue
+        end if
+
         print g.const.indent + g.s3("Trying memory address " + mem + " with value " + value + " in " + metaLib.lib_name + " at version " + metaLib.version)
         comp = metaLib.overflow(mem, value, device)
 
@@ -1927,60 +1932,108 @@ g.func.rt_load = function
     print g.const.indent + g.s3("Loaded " + len(g.rt) + " passwords.")
 end function
 
-// **Load Exploit DB:**
-// Reads EXPLOIT_DB_PATH from the home computer, deserializes it, and deep-merges the
-// result into g.database.  Missing or corrupt files are silently ignored.
-// @return {none}
-g.func.loadExploitDb = function
-    home = g.stack["0"]
-    f = home.computer.File(g.const.EXPLOIT_DB_PATH)
-    if not f then return
-    if not f.has_permission("r") then return
-    content = f.get_content
-    if content == null or content == "" then return
-    data = g.func.deserialize(content)
-    if data == null or not (data isa map) then return
-    if data.hasIndex("__unhandledRequirements") and data.__unhandledRequirements isa list then
-        g.unhandledRequirements = data.__unhandledRequirements
-        g.database.__unhandledRequirements = g.unhandledRequirements
-    end if
-    if data.hasIndex("__requirementPatterns") and data.__requirementPatterns isa list then
-        g.requirementPatterns = data.__requirementPatterns
-        g.database.__requirementPatterns = g.requirementPatterns
-    end if
+// Shard helpers for the exploit database.
 
-    for libName in data.indexes
-        if libName.len >= 2 and libName[:2] == "__" then continue
-        if not (data[libName] isa map) then continue
-        if not g.database.hasIndex(libName) then g.database[libName] = {}
-        for ver in data[libName].indexes
-            if not (data[libName][ver] isa map) then continue
-            if not g.database[libName].hasIndex(ver) then g.database[libName][ver] = {}
-            for mem in data[libName][ver].indexes
-                if not (data[libName][ver][mem] isa map) then continue
-                if not g.database[libName][ver].hasIndex(mem) then g.database[libName][ver][mem] = {}
-                for value in data[libName][ver][mem].indexes
-                    if not g.database[libName][ver][mem].hasIndex(value) then
-                        g.database[libName][ver][mem][value] = data[libName][ver][mem][value]
-                        continue
-                    end if
-                    existing = g.database[libName][ver][mem][value]
-                    saved = data[libName][ver][mem][value]
-                    if existing == "" or existing == null then
-                        g.database[libName][ver][mem][value] = saved
-                    end if
-                end for
+// Computes the file path for a given library's shard.
+// @param {string} libName - Library name (e.g. "aptclient.so").
+// @return {string} - Absolute path to the shard file.
+g.func.getExploitDbShardPath = function(libName)
+    return g.const.EXPLOIT_DB_PATH + "." + libName
+end function
+
+// Deep-merges a single library's version/mem/value data into g.database.
+// Empty/null existing records are overwritten; otherwise the existing record is kept.
+// @param {string} libName - Library name.
+// @param {map} libData - Library data (versions map).
+// @return {none}
+g.func.mergeExploitDbLibrary = function(libName, libData)
+    if not (libData isa map) then return
+    if not g.database.hasIndex(libName) then g.database[libName] = {}
+
+    for ver in libData.indexes
+        if not (libData[ver] isa map) then continue
+        if not g.database[libName].hasIndex(ver) then g.database[libName][ver] = {}
+        for mem in libData[ver].indexes
+            if not (libData[ver][mem] isa map) then continue
+            if not g.database[libName][ver].hasIndex(mem) then g.database[libName][ver][mem] = {}
+            for value in libData[ver][mem].indexes
+                if not g.database[libName][ver][mem].hasIndex(value) then
+                    g.database[libName][ver][mem][value] = libData[ver][mem][value]
+                    continue
+                end if
+                existing = g.database[libName][ver][mem][value]
+                saved = libData[ver][mem][value]
+                if existing == "" or existing == null then
+                    g.database[libName][ver][mem][value] = saved
+                end if
             end for
         end for
     end for
 end function
 
+// **Load Exploit DB:**
+// Reads the main metadata file and any per-library shard files, then deep-merges
+// the result into g.database.  Missing or corrupt files are silently ignored.
+// The main file may still contain library data from older monolithic saves; it is
+// merged as well so the transition is transparent.
+// @return {none}
+g.func.loadExploitDb = function
+    home = g.stack["0"]
+
+    // Load main file (metadata + optional legacy monolithic library data).
+    f = home.computer.File(g.const.EXPLOIT_DB_PATH)
+    if f and f.has_permission("r") then
+        content = f.get_content
+        if content != null and content != "" then
+            data = g.func.deserialize(content)
+            if data != null and data isa map then
+                if data.hasIndex("__unhandledRequirements") and data.__unhandledRequirements isa list then
+                    g.unhandledRequirements = data.__unhandledRequirements
+                    g.database.__unhandledRequirements = g.unhandledRequirements
+                end if
+                if data.hasIndex("__requirementPatterns") and data.__requirementPatterns isa list then
+                    g.requirementPatterns = data.__requirementPatterns
+                    g.database.__requirementPatterns = g.requirementPatterns
+                end if
+
+                for libName in data.indexes
+                    if libName.len >= 2 and libName[:2] == "__" then continue
+                    g.func.mergeExploitDbLibrary(libName, data[libName])
+                end for
+            end if
+        end if
+    end if
+
+    // Load per-library shard files.
+    dbDir = home.computer.File(parent_path(g.const.EXPLOIT_DB_PATH))
+    if dbDir and dbDir.is_folder then
+        prefix = g.const.EXPLOIT_DB_PATH.split("/")[-1] + "."
+        for file in dbDir.get_files
+            if not (file.name.indexOf(prefix) == 0) then continue
+            if file.name.len <= prefix.len then continue
+            libName = file.name[prefix.len:]
+            if libName.len >= 2 and libName[:2] == "__" then continue
+            if not file.has_permission("r") then continue
+            content = file.get_content
+            if content == null or content == "" then continue
+            shardData = g.func.deserialize(content)
+            if shardData == null or not (shardData isa map) then continue
+            if not shardData.hasIndex(libName) then continue
+            g.func.mergeExploitDbLibrary(libName, shardData[libName])
+        end for
+    end if
+end function
+
 // **Save Exploit DB:**
-// Serializes g.database and writes it to EXPLOIT_DB_PATH on the home computer.
-// Creates the file if it does not exist.
+// Writes metadata to the main file and splits library data into per-library shard
+// files.  This avoids the 160,000 character per-file limit by sharding along the
+// first lookup key (library name), which matches the g.database[lib][ver][mem][value]
+// access pattern.
 // @return {none}
 g.func.saveExploitDb = function
     home = g.stack["0"]
+
+    // Ensure main file exists.
     f = home.computer.File(g.const.EXPLOIT_DB_PATH)
     if not f then
         result = home.computer.touch(parent_path(g.const.EXPLOIT_DB_PATH), g.const.EXPLOIT_DB_PATH.split("/")[-1])
@@ -1994,10 +2047,63 @@ g.func.saveExploitDb = function
         print g.error("saveExploitDb: file not found after creation attempt")
         return
     end if
-    content = g.func.serialize(g.database, 1)
+
+    // Save metadata to main file.
+    metadata = {"__sharded": 1}
+    if g.database.hasIndex("__unhandledRequirements") then metadata.__unhandledRequirements = g.database.__unhandledRequirements
+    if g.database.hasIndex("__requirementPatterns") then metadata.__requirementPatterns = g.database.__requirementPatterns
+
+    content = g.func.serialize(metadata, 1)
     result = f.set_content(content)
     if typeof(result) == "string" then
         print g.error("saveExploitDb: " + result)
+        return
+    end if
+
+    // Save each library to its own shard file.
+    for libName in g.database.indexes
+        if libName.len >= 2 and libName[:2] == "__" then continue
+        if not (g.database[libName] isa map) then continue
+        if g.database[libName].len == 0 then continue
+
+        shardPath = g.func.getExploitDbShardPath(libName)
+        shardFile = home.computer.File(shardPath)
+        if not shardFile then
+            result = home.computer.touch(parent_path(shardPath), shardPath.split("/")[-1])
+            if typeof(result) == "string" then
+                print g.error("saveExploitDb: could not create shard for " + libName + ": " + result)
+                continue
+            end if
+            shardFile = home.computer.File(shardPath)
+        end if
+        if not shardFile then
+            print g.error("saveExploitDb: shard file not found after creation attempt for " + libName)
+            continue
+        end if
+
+        shardData = {}
+        shardData[libName] = g.database[libName]
+        shardContent = g.func.serialize(shardData, 1)
+        result = shardFile.set_content(shardContent)
+        if typeof(result) == "string" then
+            print g.error("saveExploitDb: could not save shard for " + libName + ": " + result)
+        end if
+    end for
+
+    // Remove stale shard files for libraries no longer in the database.
+    dbDir = home.computer.File(parent_path(g.const.EXPLOIT_DB_PATH))
+    if dbDir and dbDir.is_folder then
+        prefix = g.const.EXPLOIT_DB_PATH.split("/")[-1] + "."
+        for file in dbDir.get_files
+            if not (file.name.indexOf(prefix) == 0) then continue
+            if file.name.len <= prefix.len then continue
+            libName = file.name[prefix.len:]
+            if libName.len >= 2 and libName[:2] == "__" then continue
+            hasData = g.database.hasIndex(libName) and g.database[libName] isa map and g.database[libName].len > 0
+            if not hasData then
+                file.delete
+            end if
+        end for
     end if
 end function
 

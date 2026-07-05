@@ -97,7 +97,7 @@ hack = function(args)
 
                     if temp == null then
                         type = "null"
-                        output = user_input("")
+                        output = ""
                     else if typeof(temp) == "string" then
                         type = "null"
                         output = temp
@@ -106,40 +106,17 @@ hack = function(args)
                         type = typeof(temp)
                     end if
 
-                    // error: can't change password for user Livesli. Passwords must be alphanumeric.
-                    pattern = "user ([a-zA-Z0-9]+)"
-
                     if type == "number" then
                         if extra == "" and result.obj == 1 then
                             result.type = "firewall"
                             result.user = g.d1("N/A")
-                        else if extra == "" and result.obj == 0 then
-                            input = user_input("")
-                            output = input
-                            if input.is_match(pattern) then
-                                result.type = "passwordReset"
-                                m = input.matches(pattern)
-                                user = m[m.indexes[0]].split(" ")[1]
-                                result.user = user.getUser
-                            else
-                                result.type = "null"
-                                result.user = g.d1("N/A")
-                            end if
-                        else if extra != "" then
-                            result.type = "firewall"
-
-                            input = user_input("")
-                            output = input
-                            if input.is_match("Unable to find non root user in computer") then
-                                result.type = "computer"
-                                result.user = "non-root user"
-                            else if input.is_match(pattern) then
-                                m = input.matches(pattern)
-                                user = m[m.indexes[0]].split(" ")[1]
-                                result.user = user.getUser
-                            else
-                                result.user = g.d1("N/A")
-                            end if
+                        else
+                            // Other numeric results cannot be reliably interpreted without
+                            // capturing the engine's printed output.  Record the raw number
+                            // and treat the attempt as null so we don't block on user_input.
+                            result.type = "null"
+                            result.user = g.d1("N/A")
+                            output = "number result: " + result.obj
                         end if
                         result.address = address
                     else if type == "shell" or type == "computer" then
@@ -227,8 +204,10 @@ hack = function(args)
                 for value in values
                     savedResult = g.func.getExploitRecord(metalib.lib_name, metalib.version, mem, value)
 
-                    runIt = savedResult.resultType == null or savedResult.resultType == "null" or savedResult.resultType == "computer"
-                    if not runIt then continue
+                    if g.func.knownMismatch(metalib.lib_name, metalib.version, mem, value, "computer", null) then
+                        print g.const.indent + g.d1("Skipping known non-computer result for " + mem + " with value " + value)
+                        continue
+                    end if
 
                     print g.const.indent + g.s3("Trying memory address " + mem + " with value " + value + " in " + metalib.lib_name + " at version " + metalib.version)
                     temp = metalib.overflow(mem, value, address)
@@ -237,7 +216,7 @@ hack = function(args)
                     record.tested = 1
                     output = ""
                     if not temp then
-                        output = user_input("")
+                        output = ""
                         record.lastOutput = output
                         g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
                         continue

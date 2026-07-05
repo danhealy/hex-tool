@@ -1,0 +1,106 @@
+// Prints usage and flag descriptions for the desktop utility.
+// @return {none}
+desktopHelp = function()
+    text = g.const.ni + g.l3("Usage:","u") + g.const.ni
+    text = text + g.g2(self.name) + g.l2(" Launches the home computer desktop programs.") + g.const.ni
+    text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Displays this help text") + g.const.nl
+
+    print(text)
+end function
+
+// Gathers the current process list from the home computer silently (no printed output),
+// verifies that AdminMonitor.exe exists in /bin or /usr/bin, then launches
+// FileExplorer.exe, AdminMonitor.exe, Mail.exe, and Browser.exe if they are not
+// already running.
+// @param {list<string>|null} args - Pass ["-h"] or ["help"] to show usage.
+// @return {none}
+doDesktop = function(args = null)
+    if args != null and args.len > 0 and (args[0] == "-h" or args[0] == "help") then
+        self.help
+        return
+    end if
+
+    if not g.stack.hasIndex("0") then
+        print g.error("Home computer stack not found.")
+        return
+    end if
+
+    home = g.stack["0"]
+
+    if home.computer == null or home.shell == null then
+        print g.error("Home context does not have a computer or shell.")
+        return
+    end if
+
+    // Silently collect running process names from show_procs.
+    running = []
+    procs = home.computer.show_procs
+    if procs != null and procs != "" then
+        lines = procs.split(char(10))[1:]
+        for line in lines
+            parts = line.split(" ")
+            if parts.len >= 5 then
+                running.push(parts[4])
+            end if
+        end for
+    end if
+
+    // Helper to locate a binary in /bin or /usr/bin on the home computer.
+    findExe = function(name)
+        dirs = [outer.home.computer.File("/bin"), outer.home.computer.File("/usr/bin")]
+        for dir in dirs
+            if dir == null then continue
+            matches = g.func.find(dir, name, "b")
+            if matches.len > 0 then return matches[0]
+        end for
+        return null
+    end function
+
+    // Require AdminMonitor.exe to be present before launching anything.
+    if findExe("AdminMonitor.exe") == null then
+        print g.error("AdminMonitor.exe not found in /bin or /usr/bin.")
+        return
+    end if
+
+    targets = ["FileExplorer.exe", "AdminMonitor.exe", "Mail.exe", "Browser.exe"]
+    launched = []
+    skipped = []
+    missing = []
+
+    for name in targets
+        file = findExe(name)
+        if file == null then
+            missing.push(name)
+            continue
+        end if
+
+        if running.indexOf(name) != null then
+            skipped.push(name)
+            continue
+        end if
+
+        home.shell.launch(file.path)
+        launched.push(name)
+    end for
+
+    output = g.const.nl + g.const.indent + g.s3("Home desktop launch summary:") + g.const.nl
+    for name in launched
+        output = output + g.const.indent + g.g2("[+]") + " " + name + g.const.nl
+    end for
+    for name in skipped
+        output = output + g.const.indent + g.y1("[~]") + " " + name + " (already running)" + g.const.nl
+    end for
+    for name in missing
+        output = output + g.const.indent + g.r1("[-]") + " " + name + " (not found)" + g.const.nl
+    end for
+
+    print output
+end function
+
+g.util.desktop = {
+    "name": "desktop",
+    "shortDescription": "Launches FileExplorer, AdminMonitor, Mail, and Browser on the home computer.",
+    "exec": @doDesktop,
+    "help": @desktopHelp,
+    "data": {}
+}
