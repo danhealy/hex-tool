@@ -124,12 +124,16 @@ hack = function(args)
                         result.address = temp.getLocal
                         result.user = g.func.normalizeResultUser(temp.getUser(1))
 
+                        g.logsDirty = true
+
                         item = temp.createContext("overflow")
                         g.stack.add(item)
                     else if type == "file" then
                         result.type = type
                         result.address = address
                         result.user = g.func.normalizeResultUser(temp.getUser(1))
+
+                        g.logsDirty = true
 
                         item = temp.createContext("overflow")
                         item.local = address
@@ -221,6 +225,8 @@ hack = function(args)
                         g.func.setExploitRecord(metalib.lib_name, metalib.version, mem, value, record)
                         continue
                     end if
+
+                    g.logsDirty = true
 
                     type = typeof(temp)
 
@@ -357,6 +363,8 @@ hack = function(args)
             print(g.error(session))
             return []
         end if
+
+        g.logsDirty = true
 
         metaLib = session.dump_lib
         if metaLib then

@@ -22,6 +22,7 @@ doTerminal = function(args)
         context.shell.launch(term.path)
     else
         print g.const.indent + g.y1("Falling back to start_terminal...")
+        g.logsDirty = true
         context.shell.start_terminal
     end if
 end function

@@ -2,6 +2,7 @@ g = get_custom_object
 
 if not g.hasIndex("colors") then g.colors = {}
 g.command = ""
+g.logsDirty = false
 if not g.hasIndex("const") then g.const = {}
 if not g.hasIndex("context") then g.context = {}
 if not g.hasIndex("database") then g.database = {}
@@ -53,6 +54,26 @@ if params.len > 1 then
 	else
 		exit(g.l3("Usage: hex [IP Address] {Port}"))
 	end if
+end if
+
+// Optional compile-time environment variables injected by Greybel's #envar directive.
+// Greybel may inject these as either parsed literals or JSON strings, so parse if needed.
+_envarProxies = #envar proxies
+if typeof(_envarProxies) == "string" and _envarProxies != "" then
+    _envarProxies = g.func.deserialize(_envarProxies)
+end if
+if typeof(_envarProxies) == "list" then
+    g.proxies = _envarProxies
+    print(g.const.indent + g.s3("Loaded " + _envarProxies.len + " proxy(s) from environment variable."))
+end if
+
+_envarRshell = #envar rshell
+if typeof(_envarRshell) == "string" and _envarRshell != "" then
+    _envarRshell = g.func.deserialize(_envarRshell)
+end if
+if typeof(_envarRshell) == "map" and _envarRshell.hasIndex("ip") and _envarRshell.hasIndex("user") and _envarRshell.hasIndex("pass") then
+    g.rshellEnv = _envarRshell
+    print(g.const.indent + g.s3("Loaded rshell server from environment variable."))
 end if
 
 g.func.init

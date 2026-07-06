@@ -247,7 +247,7 @@ Scores, collects, and deploys library binaries. The archive is the single source
 
 ```
 shinylibs scan {path}    Scan a directory for .so files and stage every one found (default: /lib)
-shinylibs list           List archived libraries grouped by name
+shinylibs info           List archived libraries grouped by name, best exploits, and unhandled requirements
 shinylibs get            Copy all staged libraries to the local archive
 shinylibs put vuln       Replace target /lib libraries with the most offensive archived versions
 shinylibs put harden     Replace target /lib libraries with the most defensive archived versions
@@ -756,12 +756,54 @@ hex-tool/
 
 ### Environment Variables
 
-HEX reads two optional environment variables during compilation.  Note that this functionality is only supported with greybel, and these variables must be configured in the greyble-vs settings (transpiler environment variables):
+HEX reads two optional environment variables during compilation via Greybel's `#envar` directive. The injected value becomes a literal in the source, so it must be valid Miniscript syntax. Configure these in the Greybel-VS settings under **Greybel > Transpiler > Environment Variables** (a JSON object), or point **Greybel > Transpiler > Environment Variables File** at a `.env` file.
 
-| Variable | Format | Description | file |
+| Variable | Format | Description | Used in |
 |---|---|---|---|
-| `#envar proxies` | JSON list of `[ip, port, user, pass]` | Pre-configure proxy chains | In hex/proxies.src |
-| `#envar rshell` | JSON object | Pre-configure the rshell server connection | In hex/rshell.src |
+| `proxies` | JSON list of `[ip, port, user, pass]` arrays | Pre-configure proxy chains | `hex/proxies.src` |
+| `rshell` | JSON object `{"ip": "...", "port": ..., "user": "...", "pass": "..."}` | Pre-configure the rshell server connection | `hex/rshell.src` |
+
+#### Example `proxies` value
+
+```json
+[
+  ["fa.ke.ip.addr", 22, "root", "MyFakePass"],
+  ["10.20.30.40", 2222, "admin", "AnotherFakePass"]
+]
+```
+
+With the value above, building HEX bakes that proxy chain into the compiled output. The entries are used in order when you later run `proxy -s` / `proxy start`. Port is optional in the sense that you should still include it; use `22` for a standard SSH proxy.
+
+#### Example `rshell` value
+
+```json
+{
+  "ip": "fa.ke.ip.addr",
+  "port": 1222,
+  "user": "root",
+  "pass": "MyFakePass"
+}
+```
+
+`port` is optional and defaults to `1222` if omitted.
+
+#### Configuring in Greybel-VS
+
+1. Open VS Code settings (`Ctrl+,`).
+2. Search for `Greybel transpiler environment variables`.
+3. In **Greybel > Transpiler > Environment Variables**, enter a JSON object. For a single proxy:
+
+```json
+{
+  "proxies": [
+    ["fa.ke.ip.addr", 22, "root", "MyFakePass"]
+  ]
+}
+```
+
+Alternatively, set **Greybel > Transpiler > Environment Variables File** to the path of a `.env` file. Because `.env` files store values as plain strings, complex values like lists are easiest to configure through the JSON settings field.
+
+> **Note:** Environment variables are baked in at build time and act as fallbacks. If you also save proxies or an rshell server with the in-game `config` command, the saved config takes precedence. To change these values after HEX is compiled without rebuilding, use `config proxy add` / `config proxy remove` and `config rshell set` / `config rshell remove`.
 
 ### Persistent Configuration
 

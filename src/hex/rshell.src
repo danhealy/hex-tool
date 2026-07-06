@@ -8,7 +8,11 @@
 g.func.init_rshell = function(idx = null, port = 1222)
     if idx == null then
         config = g.func.loadConfig
-        if config.rshell == null then
+        rshellCfg = config.rshell
+        if rshellCfg == null and g.hasIndex("rshellEnv") then
+            rshellCfg = g.rshellEnv
+        end if
+        if rshellCfg == null then
             return 0
         end if
 
@@ -23,10 +27,16 @@ g.func.init_rshell = function(idx = null, port = 1222)
             return 0
         end if
 
-        ip = config.rshell.ip
-        port = config.rshell.port
-        user = config.rshell.user
-        pass = config.rshell.pass
+        ip = rshellCfg.ip
+        if rshellCfg.hasIndex("port") and typeof(rshellCfg.port) == "number" then
+            port = rshellCfg.port
+        else if rshellCfg.hasIndex("port") and typeof(rshellCfg.port) == "string" and typeof(rshellCfg.port.to_int) == "number" then
+            port = rshellCfg.port.to_int
+        else
+            port = 1222
+        end if
+        user = rshellCfg.user
+        pass = rshellCfg.pass
 
         rshell = context.shell.connect_service(ip, 22, user, pass)
 
@@ -39,6 +49,8 @@ g.func.init_rshell = function(idx = null, port = 1222)
             print g.error("Failed to connect to rshell server at the following IP: " + ip)
             return 0
         end if
+
+        g.logsDirty = true
 
         rshellContext = rshell.createContext("rs server")
         rshellContext.path = "/root"

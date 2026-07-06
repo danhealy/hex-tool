@@ -3,12 +3,16 @@
 shinylibsHelp = function
 	text = g.const.ni + g.l3("Usage:", "u") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" scan") + g.l2(" {path} {force}") + g.l2(" Scans the target directory for .so libraries and stages every one found (default: /lib). Use 'force' to rescan already-archived or staged libraries.") + g.const.ni
-	text = text + g.g2(self.name) + g.b3(" list") + g.l2(" Lists all known library versions, marking any version missing from the home archive in bold, plus the best unrestricted/restricted exploits per handle type and any unhandled requirement patterns.") + g.const.ni
-	text = text + g.g2(self.name) + g.b3(" list clear-unhandled") + g.l2(" Clears the persistent unhandled requirement pattern list.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" info") + g.l2(" {libname.so} {version}") + g.l2(" With no arguments, lists all known library versions, best exploits, and unhandled requirements. With a library name, lists every known exploit for that library/version.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" info clear-unhandled") + g.l2(" Clears the persistent unhandled requirement pattern list.") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" req-patterns") + g.l2(" Dumps every unique requirement bullet pattern seen, marked handled or unhandled.") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" get") + g.l2(" Copies all staged libraries to the local archive under /root/hex-shinylibs/. If nothing is staged, /lib is auto-scanned and any unscanned .so files are copied.") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" put vuln") + g.l2(" Replaces target /lib libraries with the most vulnerable archived versions.") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" put harden") + g.l2(" Replaces target /lib libraries with the most hardened archived versions.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" harden") + g.l2(" Interactively harden /lib libraries by choosing from the most defensive archived versions.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" harden defaults") + g.l2(" Automatically replace /lib libraries with the most defensive archived versions without prompting.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" test") + g.l2(" {libname.so} {version}") + g.l2(" Attempts every known exploit for the archived library version on the home computer and records the granted handle. If version is omitted, every archived version is tested. Already-tested exploits are skipped.") + g.const.ni
+	text = text + g.g2(self.name) + g.b3(" migrate") + g.l2(" Migrates legacy exploit database keys (e.g. missingLib -> requiredLib).") + g.const.ni
 	text = text + g.g2(self.name) + g.b3(" [-h/help]") + g.l2(" Display this help text.") + g.const.nl
 	print text
 end function
@@ -376,11 +380,29 @@ shinylibsReqPatterns = function
 	print ""
 end function
 
-// **shinylibs list:**
+// Orders a list of users for display: root first, then guest, then others.
+// @param {list<string>} users - Users to order.
+// @return {list<string>} - Ordered users.
+shinylibsOrderUsers = function(users)
+	ordered = []
+	for u in users
+		if u == "root" then ordered.push(u)
+	end for
+	for u in users
+		if u == "guest" then ordered.push(u)
+	end for
+	for u in users
+		if u != "root" and u != "guest" then ordered.push(u)
+	end for
+	return ordered
+end function
+
+// **shinylibs info (all):**
 // Displays all known library versions from the exploit DB and archive, marking any
 // version whose binary is missing from the home shinylibs directory in bold.
+// Also shows the most useful exploits per handle type and any unhandled patterns.
 // @return {none}
-shinylibsList = function
+shinylibsInfoAll = function
 	archive = g.func.loadShinylibsDb
 	home = g.stack["0"]
 
@@ -538,20 +560,6 @@ shinylibsList = function
 			"number": "Number",
 		}
 
-		orderUsers = function(users)
-			ordered = []
-			for u in users
-				if u == "root" then ordered.push(u)
-			end for
-			for u in users
-				if u == "guest" then ordered.push(u)
-			end for
-			for u in users
-				if u != "root" and u != "guest" then ordered.push(u)
-			end for
-			return ordered
-		end function
-
 		for typeKey in typeOrder
 			if not byType.hasIndex(typeKey) then continue
 			bucket = byType[typeKey]
@@ -561,7 +569,7 @@ shinylibsList = function
 			print g.const.indent + g.s2(label)
 
 			if bucket.unrestricted.len > 0 then
-				users = orderUsers(bucket.unrestricted.indexes)
+				users = shinylibsOrderUsers(bucket.unrestricted.indexes)
 				for user in users
 					entry = bucket.unrestricted[user]
 					line = g.const.indent + "  " + g.g1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
@@ -569,7 +577,7 @@ shinylibsList = function
 				end for
 			else if bucket.restricted.len > 0 then
 				print g.const.indent + "  " + g.y1("No unrestricted exploits; easiest restrictions:")
-				users = orderUsers(bucket.restricted.indexes)
+				users = shinylibsOrderUsers(bucket.restricted.indexes)
 				for user in users
 					entry = bucket.restricted[user]
 					line = g.const.indent + "    " + g.y1(entry.user) + " — " + entry.libName + " v" + entry.version + " @ " + entry.mem + "=" + entry.value + "  score=" + entry.score
@@ -848,6 +856,633 @@ shinylibsPut = function(mode)
 	end if
 end function
 
+// Bubble-sorts a list of maps by a numeric key.
+// @param {list} list - The list to sort in-place.
+// @param {string} key - The map key to compare.
+// @param {number} desc - If 1, highest first; otherwise lowest first.
+// @return {list} - The sorted list.
+shinylibsSortByKey = function(list, key, desc = 0)
+	n = list.len
+	while n > 1
+		newN = 0
+		for i in range(1, n - 1)
+			a = list[i - 1][key]
+			b = list[i][key]
+			if a == null then a = 0
+			if b == null then b = 0
+			swap = 0
+			if desc == 1 and a < b then swap = 1
+			if desc == 0 and a > b then swap = 1
+			if swap then
+				tmp = list[i - 1]
+				list[i - 1] = list[i]
+				list[i] = tmp
+				newN = i
+			end if
+		end for
+		n = newN
+	end while
+	return list
+end function
+
+// Collects every known exploit for a specific lib/version from the exploit DB.
+// @param {string} libName - Library name.
+// @param {string} ver - Library version.
+// @return {list} - Exploit entries sorted by score (highest first).
+shinylibsGetKnownExploits = function(libName, ver)
+	entries = []
+	if not g.database.hasIndex(libName) then return entries
+	if not g.database[libName].hasIndex(ver) then return entries
+	if not (g.database[libName][ver] isa map) then return entries
+
+	for mem in g.database[libName][ver].indexes
+		if not (g.database[libName][ver][mem] isa map) then continue
+		values = g.database[libName][ver][mem].indexes
+		for value in values
+			record = g.func.getExploitRecord(libName, ver, mem, value)
+			sc = 0
+			typeLabel = "untested"
+			userLabel = null
+			if record.tested == 1 then
+				sc = g.func.scoreExploitRecord(record)
+				if record.resultType != null and record.resultType != "null" then
+					typeLabel = record.resultType
+				end if
+				userLabel = record.resultUser
+			end if
+
+			entries.push({
+				"mem": mem,
+				"value": value,
+				"type": typeLabel,
+				"user": userLabel,
+				"score": sc,
+				"reqText": g.func.formatRequirements(record.requirements),
+			})
+		end for
+	end for
+
+	return shinylibsSortByKey(entries, "score", 1)
+end function
+
+// Prints exploit entries as handle, permission level, and requirements.
+// @param {list} entries - Entries returned by shinylibsGetKnownExploits.
+// @param {string} indent - Leading whitespace for each line.
+// @return {none}
+shinylibsPrintExploits = function(entries, indent)
+	if entries.len == 0 then
+		print indent + g.d1("No known exploits.")
+		return
+	end if
+
+	for entry in entries
+		handle = entry.type
+		if handle == "passwordReset" then handle = "password reset"
+		if handle == "trafficLight" then handle = "traffic light"
+
+		user = ""
+		if entry.user != null then user = " " + entry.user
+
+		reqs = ""
+		if entry.reqText != "" then reqs = " [" + entry.reqText + "]"
+
+		colorHandle = g.l2(handle)
+		if entry.type == "shell" then colorHandle = g.r1(handle)
+		if entry.type == "computer" then colorHandle = g.y1(handle)
+		if entry.type == "file" then colorHandle = g.g1(handle)
+		if entry.type == "untested" then colorHandle = g.d1(handle)
+
+		print indent + g.l2(entry.mem + "=" + entry.value) + "  " + colorHandle + user + g.l2(reqs)
+	end for
+end function
+
+// Prints a version block: label, top score, and every known exploit.
+// @param {string} libName - Library name.
+// @param {string} ver - Library version.
+// @param {map} archive - Loaded shinylibs archive.
+// @param {string} label - Label prefix (e.g. "Current:" or "[1]").
+// @param {string} indent - Base indentation for the version line.
+// @param {string} innerIndent - Additional indentation for exploit lines.
+// @return {none}
+shinylibsPrintVersionInfo = function(libName, ver, archive, label, indent, innerIndent)
+	score = shinylibsGetVersionTopScore(libName, ver, archive)
+	archiveKey = libName + "/" + ver
+	archivedTag = ""
+	if archive.records.hasIndex(archiveKey) then
+		archivedTag = " " + g.g1("[archived]")
+	else
+		archivedTag = " " + g.d1("[not archived]")
+	end if
+	print indent + label + " v" + ver + "  score=" + score + archivedTag
+	shinylibsPrintExploits(shinylibsGetKnownExploits(libName, ver), indent + innerIndent)
+end function
+
+// Returns the best-known top score for a lib/version.
+// Prefers the archive record, then falls back to a cache-only score.
+// @param {string} libName - Library name.
+// @param {string} ver - Library version.
+// @param {map} archive - Loaded shinylibs archive.
+// @return {number|string} - Top score, or "?" if unknown.
+shinylibsGetVersionTopScore = function(libName, ver, archive)
+	key = libName + "/" + ver
+	if archive.records.hasIndex(key) then return archive.records[key].topScore
+
+	cached = scoreLibFromCache(libName, ver)
+	if cached != null then return cached.topScore
+
+	return "?"
+end function
+
+// Returns all archived versions of a library sorted from most to least defensive.
+// @param {string} libName - Library name.
+// @param {map} archive - Loaded shinylibs archive.
+// @return {list} - Archive records sorted by topScore ascending.
+shinylibsGetArchivedVersions = function(libName, archive)
+	versions = []
+	for key in archive.records.indexes
+		parts = key.split("/")
+		if parts.len < 2 then continue
+		if parts[0] != libName then continue
+		versions.push(archive.records[key])
+	end for
+	return shinylibsSortByKey(versions, "topScore", 0)
+end function
+
+// **shinylibs harden:**
+// Interactively replaces /lib libraries with the most defensive archived versions.
+// With useDefaults set to 1, prompts are skipped and the best defensive version is
+// applied to every library automatically.
+// @param {number} useDefaults - If 1, apply defaults without prompting.
+// @return {none}
+shinylibsHarden = function(useDefaults = 0)
+	idx = g.context.index
+	if not g.func.checkShell(idx) then return
+	context = g.stack[idx]
+	home = g.stack["0"]
+
+	metax = context.metax
+	if metax == null then
+		print g.error("shinylibs harden: metaxploit not attached on current context — cannot verify library versions. Run 'jump' to attach it first.")
+		return
+	end if
+
+	libsDir = context.computer.File("/lib")
+	if not libsDir then
+		print g.error("shinylibs harden: /lib not found on current context.")
+		return
+	end if
+
+	archive = g.func.loadShinylibsDb
+	if archive.records.len == 0 then
+		print g.const.indent + g.d1("Archive is empty. Run 'shinylibs scan [path]' and 'shinylibs get' first.")
+		return
+	end if
+
+	if not useDefaults then
+		print g.const.nl + g.func.heading("ShinyLibs Harden")
+	end if
+
+	replaced = 0
+	skipped = 0
+
+	for f in libsDir.get_files
+		if f.name[-3:] != ".so" then continue
+		libName = f.name
+
+		archivedVersions = shinylibsGetArchivedVersions(libName, archive)
+		if archivedVersions.len == 0 then
+			if not useDefaults then
+				print g.const.nl + g.const.indent + g.l2(libName) + " " + g.d1("— no archived versions.")
+			end if
+			continue
+		end if
+
+		metaLib = metax.load(f.path)
+		currentVer = null
+		if metaLib != null then currentVer = metaLib.version
+
+		if not useDefaults then
+			print g.const.nl + g.const.indent + g.s2(libName)
+
+			if currentVer == null then
+				print g.const.indent + "  " + g.y1("Current: unknown (could not load with metaxploit)")
+			else
+				shinylibsPrintVersionInfo(libName, currentVer, archive, g.y1("Current:"), g.const.indent + "  ", "  ")
+			end if
+		end if
+
+		limit = 5
+		if archivedVersions.len < limit then limit = archivedVersions.len
+		top5 = []
+		for i in range(0, limit - 1)
+			top5.push(archivedVersions[i])
+		end for
+
+		if not useDefaults then
+			print g.const.indent + "  " + g.g1("Defensive options:")
+			for i in range(0, top5.len - 1)
+				rec = top5[i]
+				shinylibsPrintVersionInfo(libName, rec.version, archive, "[" + (i + 1) + "]", g.const.indent + "    ", "  ")
+			end for
+
+			defaultVer = top5[0].version
+			prompt = g.const.indent + "  Replace with [1-" + top5.len + ", version, Enter=" + defaultVer + ", n=keep]? "
+			ans = user_input(prompt, 0, 0, 0)
+			ans = ans.trim
+
+			target = null
+			if ans == "" then
+				target = top5[0]
+			else if ans.lower == "n" or ans.lower == "no" or ans.lower == "skip" then
+				target = null
+			else
+				num = ans.to_int
+				if typeof(num) == "number" and num >= 1 and num <= top5.len then
+					target = top5[num - 1]
+				else
+					for rec in archivedVersions
+						if rec.version == ans then
+							target = rec
+							break
+						end if
+					end for
+					if target == null then
+						print g.const.indent + "    " + g.d1("Unknown version '" + ans + "'. Keeping current.")
+					end if
+				end if
+			end if
+
+			if target == null then
+				skipped += 1
+				continue
+			end if
+		else
+			target = archivedVersions[0]
+		end if
+
+		if currentVer != null and target.version == currentVer then
+			print g.const.indent + g.d1(libName + " already at v" + currentVer + ", skipping.")
+			skipped += 1
+			continue
+		end if
+
+		srcPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + target.version + "/" + libName
+		result = g.func.transfer(home.shell, srcPath, context.shell, "/lib")
+		if not result then
+			print g.error("shinylibs harden: transfer failed for " + libName)
+			continue
+		end if
+
+		replaced += 1
+		print g.const.indent + g.g1("Replaced " + libName + " with v" + target.version)
+	end for
+
+	print g.const.nl + g.const.indent + g.s3("Hardened " + replaced + " libraries, skipped " + skipped + ".")
+	if replaced > 0 then
+		print g.const.indent + g.y1("Warning: SCP creates logs on the target. Run 'corruptlogs' or 'log clear' to clean up.")
+	end if
+end function
+
+// **shinylibs info (one):**
+// Lists every known exploit for a library version. If no version is supplied,
+// every known version of the library is shown.
+// @param {list<string>} args - Command arguments.
+// @return {none}
+shinylibsInfoOne = function(args)
+	if args.len == 0 or args[0] == "-h" or args[0] == "help" then
+		print g.error("shinylibs info: specify a library name and optionally a version.")
+		self.help
+		return
+	end if
+
+	libName = args[0]
+	if libName[-3:] != ".so" then libName = libName + ".so"
+
+	archive = g.func.loadShinylibsDb
+
+	if args.len > 1 then
+		ver = args[1]
+		print g.const.nl + g.func.heading(libName + " " + ver)
+		shinylibsPrintVersionInfo(libName, ver, archive, g.s2("Version:"), g.const.indent, "  ")
+	else
+		versions = {}
+		if g.database.hasIndex(libName) and g.database[libName] isa map then
+			for ver in g.database[libName].indexes
+				versions[ver] = 1
+			end for
+		end if
+		for key in archive.records.indexes
+			parts = key.split("/")
+			if parts.len < 2 or parts[0] != libName then continue
+			versions[parts[1]] = 1
+		end for
+
+		if versions.len == 0 then
+			print g.error("shinylibs info: no known versions for " + libName)
+			return
+		end if
+
+		versionList = versions.indexes
+		versionList.sort
+
+		print g.const.nl + g.func.heading(libName)
+		for ver in versionList
+			shinylibsPrintVersionInfo(libName, ver, archive, g.s2("Version:"), g.const.indent, "  ")
+		end for
+	end if
+
+	print ""
+end function
+
+// **shinylibs info:**
+// With no arguments, lists the entire ShinyLibs archive and most useful exploits.
+// With a library name (and optional version), lists every known exploit for it.
+// @param {list<string>} args - Command arguments.
+// @return {none}
+shinylibsInfo = function(args)
+	if args.len == 0 then
+		shinylibsInfoAll
+	else
+		shinylibsInfoOne(args)
+	end if
+end function
+
+// Picks a sensible extra argument for testing an exploit on the home computer.
+// @param {map} record - The exploit record.
+// @param {computer} homeComputer - The home computer object.
+// @return {string} - The extra argument to pass to overflow.
+shinylibsGetTestExtraArg = function(record, homeComputer)
+	if record.extraArg == null or record.extraArg == "none" then return ""
+	if record.extraArg == "lanIp" then return homeComputer.local_ip
+	if record.extraArg == "password" then return ""
+	if record.extraArg == "path" then
+		if record.requirements != null and record.requirements.hasIndex("requiredPaths") and record.requirements.requiredPaths != null and record.requirements.requiredPaths isa list and record.requirements.requiredPaths.len > 0 then
+			return record.requirements.requiredPaths[0]
+		end if
+		return "/lib"
+	end if
+	return ""
+end function
+
+// Stages an archived library version to /lib on the home computer for testing.
+// If /lib already has the target version, no changes are made. Otherwise the
+// existing file is backed up to /root/hex-shinylibs/.backup/ and replaced.
+// @param {string} libName - Library name.
+// @param {string} ver - Library version.
+// @param {map} home - Home context map.
+// @param {map} archive - Loaded shinylibs archive.
+// @return {map} - {success: 1|0, backupPath: string|null, wasChanged: 1|0}
+shinylibsStageTestLib = function(libName, ver, home, archive)
+	info = {"success": 0, "backupPath": null, "wasChanged": 0}
+
+	libPath = "/lib/" + libName
+	srcPath = g.const.SHINYLIBS_BIN_PATH + "/" + libName + "/" + ver + "/" + libName
+
+	existing = home.computer.File(libPath)
+	if existing then
+		metaLib = home.metax.load(libPath)
+		if metaLib != null and metaLib.version == ver then
+			info.success = 1
+			return info
+		end if
+	end if
+
+	backupDir = "/root/hex-shinylibs/.backup"
+	if not g.func.ensureShinylibsDir(backupDir) then return info
+
+	backupPath = backupDir + "/" + libName
+	stale = home.computer.File(backupPath)
+	if stale then stale.delete
+
+	if existing then
+		moveResult = existing.move(backupDir, libName)
+		if moveResult != 1 then
+			print g.error("shinylibs test: failed to backup existing " + libName + ": " + moveResult)
+			return info
+		end if
+		info.backupPath = backupPath
+	end if
+
+	if not g.func.transfer(home.shell, srcPath, home.shell, "/lib") then
+		if info.backupPath != null then
+			backupFile = home.computer.File(info.backupPath)
+			if backupFile then backupFile.move("/lib", libName)
+		end if
+		print g.error("shinylibs test: failed to stage " + libName + " v" + ver + " to /lib")
+		return info
+	end if
+
+	info.success = 1
+	info.wasChanged = 1
+	return info
+end function
+
+// Restores the original /lib library after testing.
+// Only makes changes if the staging function actually modified /lib.
+// @param {string} libName - Library name.
+// @param {map} home - Home context map.
+// @param {string|null} backupPath - Path to the backed-up original, or null.
+// @param {number} wasChanged - 1 if /lib was modified during staging, 0 otherwise.
+// @return {none}
+shinylibsRestoreTestLib = function(libName, home, backupPath, wasChanged)
+	if wasChanged != 1 then return
+
+	libPath = "/lib/" + libName
+	testFile = home.computer.File(libPath)
+	if testFile then testFile.delete
+
+	if backupPath != null then
+		backupFile = home.computer.File(backupPath)
+		if backupFile then
+			moveResult = backupFile.move("/lib", libName)
+			if moveResult != 1 then
+				print g.error("shinylibs test: failed to restore original " + libName + ": " + moveResult)
+			end if
+		end if
+	end if
+end function
+
+// Runs a single exploit against a loaded metaLib and records the result.
+// @param {metaLib} metaLib - The loaded meta library.
+// @param {string} mem - Memory address.
+// @param {string} value - Overflow value.
+// @param {string} extra - Extra argument for overflow.
+// @param {map} record - The exploit record to update.
+// @return {string} - The result type, or "null" if no handle was granted.
+shinylibsTestExploit = function(metaLib, mem, value, extra, record)
+	print g.const.indent + g.s3("Testing " + metaLib.lib_name + " v" + metaLib.version + " @ " + mem + "=" + value + "...")
+
+	temp = metaLib.overflow(mem, value, extra)
+	output = ""
+	resultType = "null"
+	resultUser = null
+
+	if temp == null then
+		resultType = "null"
+		output = ""
+	else if typeof(temp) == "string" then
+		resultType = "null"
+		output = temp
+		temp = null
+	else
+		rawType = typeof(temp)
+		if rawType == "number" then
+			if extra == "" and temp == 1 then
+				resultType = "firewall"
+			else
+				resultType = "null"
+				output = "number result: " + temp
+			end if
+		else if rawType == "shell" or rawType == "computer" or rawType == "file" then
+			resultType = rawType
+			resultUser = g.func.normalizeResultUser(temp.getUser(1))
+		else
+			resultType = "null"
+			output = "unexpected type: " + rawType
+		end if
+	end if
+
+	if resultType != "null" then
+		userText = ""
+		if resultUser != null then userText = " (User: " + resultUser + ")"
+		print g.const.indent + g.g1("  -> " + resultType + userText)
+	end if
+
+	record.tested = 1
+	record.lastOutput = output
+	if resultType != "null" then
+		record.resultType = resultType
+		record.resultUser = resultUser
+	end if
+	g.func.setExploitRecord(metaLib.lib_name, metaLib.version, mem, value, record)
+
+	return resultType
+end function
+
+// **shinylibs test:**
+// Temporarily stages an archived library version to /lib on the home computer,
+// attempts every known exploit so the granted handle is recorded in the exploit DB,
+// then restores the original /lib file. If no version is given, every archived
+// version of the library is tested. Exploits already marked as tested are skipped.
+// @param {list<string>} args - Command arguments.
+// @return {none}
+shinylibsTest = function(args)
+	if args.len < 1 or args[0] == "-h" or args[0] == "help" then
+		print g.error("shinylibs test: specify a library name and optionally a version.")
+		self.help
+		return
+	end if
+
+	libName = args[0]
+	if libName[-3:] != ".so" then libName = libName + ".so"
+
+	if not g.func.checkShell("0") then return
+	if not g.func.checkMetax("0", 1) then
+		g.func.attach_metax("0")
+	end if
+	if not g.func.checkMetax("0") then
+		print g.error("shinylibs test: metaxploit not attached on home context.")
+		return
+	end if
+
+	archive = g.func.loadShinylibsDb
+
+	versions = []
+	if args.len > 1 then
+		versions.push(args[1])
+	else
+		for key in archive.records.indexes
+			parts = key.split("/")
+			if parts.len < 2 or parts[0] != libName then continue
+			versions.push(parts[1])
+		end for
+		versions.sort
+	end if
+
+	if versions.len == 0 then
+		print g.error("shinylibs test: no archived versions for " + libName)
+		return
+	end if
+
+	home = g.stack["0"]
+	totalTested = 0
+	totalSuccess = 0
+
+	for ver in versions
+		if not g.database.hasIndex(libName) or not g.database[libName].hasIndex(ver) then
+			print g.error("shinylibs test: no database entries for " + libName + " v" + ver + ", skipping.")
+			continue
+		end if
+
+		archiveKey = libName + "/" + ver
+		if not archive.records.hasIndex(archiveKey) then
+			print g.error("shinylibs test: " + libName + " v" + ver + " is not in the shinylibs archive. Run 'shinylibs get' first.")
+			continue
+		end if
+
+		stageInfo = shinylibsStageTestLib(libName, ver, home, archive)
+		if not stageInfo.success then continue
+
+		libPath = "/lib/" + libName
+		metaLib = home.metax.load(libPath)
+		if not metaLib then
+			print g.error("shinylibs test: could not load " + libPath + " with metaxploit.")
+			shinylibsRestoreTestLib(libName, home, stageInfo.backupPath, stageInfo.wasChanged)
+			continue
+		end if
+
+		print g.const.nl + g.func.heading("Testing " + libName + " v" + ver)
+		print g.const.indent + g.s3("Loaded from " + libPath)
+
+		tested = 0
+		success = 0
+
+		mems = g.database[libName][ver].indexes
+		for mem in mems
+			values = g.database[libName][ver][mem].indexes
+			for value in values
+				record = g.func.getExploitRecord(libName, ver, mem, value)
+				if record.tested == 1 then continue
+				extra = shinylibsGetTestExtraArg(record, home.computer)
+				resType = shinylibsTestExploit(metaLib, mem, value, extra, record)
+				tested += 1
+				if resType != "null" then success += 1
+			end for
+		end for
+
+		shinylibsRestoreTestLib(libName, home, stageInfo.backupPath, stageInfo.wasChanged)
+
+		totalTested += tested
+		totalSuccess += success
+		print g.const.indent + g.s3("Tested " + tested + " new exploits, " + success + " granted a handle.")
+	end for
+
+	g.func.saveExploitDb
+
+	print g.const.nl + g.const.indent + g.s3("Total: tested " + totalTested + " new exploits, " + totalSuccess + " granted a handle.")
+end function
+
+// **shinylibs migrate:**
+// Migrates legacy exploit database keys to their current names.
+// Currently moves requirements.missingLib to requirements.requiredLib in both
+// the exploit DB and the shinylibs archive.
+// @return {none}
+shinylibsMigrate = function
+	print g.const.nl + g.func.heading("Migrating exploit database")
+
+	result = g.func.migrateExploitDb
+	print g.const.indent + g.s3("Migrated " + result.changed + " exploit record(s).")
+	print g.const.indent + g.s3("Migrated " + result.archiveChanged + " archive record(s).")
+
+	if result.changed > 0 or result.archiveChanged > 0 then
+		print g.const.indent + g.g1("Migration saved.")
+	else
+		print g.const.indent + g.d1("No legacy keys found; nothing to migrate.")
+	end if
+
+	print ""
+end function
+
 // Dispatcher for the shinylibs tool.
 // @param {list<string>} args - Command arguments.
 // @return {none}
@@ -873,12 +1508,12 @@ doShinylibs = function(args)
 			end for
 		end if
 		shinylibsScan scanPath, force
-	else if sub == "list" then
+	else if sub == "info" then
 		if args.len > 1 and args[1] == "clear-unhandled" then
 			g.func.clearUnhandledRequirements
 			return 
 		end if
-		shinylibsList
+		shinylibsInfo args[1:]
 	else if sub == "req-patterns" then
 		shinylibsReqPatterns
 	else if sub == "get" then
@@ -890,6 +1525,14 @@ doShinylibs = function(args)
 			return 
 		end if
 		shinylibsPut args[1]
+	else if sub == "harden" then
+		useDefaults = 0
+		if args.len > 1 and args[1] == "defaults" then useDefaults = 1
+		shinylibsHarden useDefaults
+	else if sub == "test" then
+		shinylibsTest args[1:]
+	else if sub == "migrate" then
+		shinylibsMigrate
 	else
 		print g.error("shinylibs: unknown subcommand '" + sub + "'.")
 		self.help

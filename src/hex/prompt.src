@@ -22,6 +22,10 @@ g.func.getPrompt = function()
 	prompt = prompt + "<voffset=-0.5em><pos=35>|<voffset=-1.5em><space=-0.5em><pos=35>|<voffset=-2em><pos=40>——"
 	prompt = prompt + g.s3("[") + g.l1(g.stack[idx].currentPath) + g.s3("]") + "—<voffset=-2.15em><size=175%>" + char(187) + "<size=100%><voffset=-2em> "
 
+	if g.logsDirty then
+		prompt = prompt.replace("—", "<color=" + g.colors.r1 + "><b>—</b></color>")
+	end if
+
 	prompt = g.const.nl + g.s2(prompt)
 
 	return prompt

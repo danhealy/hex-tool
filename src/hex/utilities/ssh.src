@@ -99,6 +99,8 @@ doSsh = function(args = null)
         return
     end if
 
+    g.logsDirty = true
+
     ctx = shell.createContext("ssh")
     key = g.stack.add(ctx)
     g.stack.lastIndex = g.context.index

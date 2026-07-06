@@ -188,6 +188,8 @@ doScan = function(args)
             return 0
         end if
 
+        g.logsDirty = true
+
         metaLib = netSession.dump_lib
 
         metaLibs = [metaLib]
@@ -232,6 +234,7 @@ doScan = function(args)
             else if typeof(netSession) == "string" then
                 print(g.error(netSession))
             else
+                g.logsDirty = true
                 metaLib = netSession.dump_lib
 
                 metaLibs.push(metaLib)
@@ -246,6 +249,7 @@ doScan = function(args)
             else if typeof(netSession) == "string" then
                 print(g.error(netSession))
             else
+                g.logsDirty = true
                 metaLib = netSession.dump_lib
 
                 metaLibs.push(metaLib)

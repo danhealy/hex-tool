@@ -4,9 +4,18 @@
 g.func.connect_proxies = function
     initProxies = function
         config = g.func.loadConfig
-        if not config.hasIndex("proxies") or config.proxies.len == 0 then return
+        sources = []
 
-        for item in config.proxies
+        if config.hasIndex("proxies") and config.proxies.len > 0 then
+            sources = config.proxies
+        else if g.hasIndex("proxies") and g.proxies.len > 0 then
+            for proxy in g.proxies
+                proxies.push(proxy)
+            end for
+            return
+        end if
+
+        for item in sources
             ip = item.ip
 
             if item.hasIndex("port") and item.port isa number then
@@ -106,6 +115,8 @@ g.func.add_proxy = function(ip, port, user, pass, final = 1)
         print g.error("Expected shell, got ftpshell instead.")
         return 0
     end if
+
+    g.logsDirty = true
 
     shell = shell.connect_service(ip, port, @user, @pass) // Looping the connection to prevent the logged IP bug thing from happening
 

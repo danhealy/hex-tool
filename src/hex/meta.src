@@ -45,6 +45,8 @@ g.meta.link = function(ip, port)
         return Result.New(0, null, "Could not connect to [" + ip + "] on port [" + port + "]")
     end if
 
+    g.logsDirty = true
+
     metaLib = netSession.dump_lib
 
     return Result.New(1, metaLib, "Found metaLib: " + metaLib.lib_name + " at version " + metaLib.version)
